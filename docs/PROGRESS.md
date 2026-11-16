@@ -9,12 +9,9 @@ Continue from **Next task**. Update this file and commit after every task.
 - Branches (stacked, merge in this order): `main` = M0 → `m1-jsonrpc-proxy` → `m2-policy-audit` → `m3-flow-control` → `m4-tool-pinning`.
 - Model that last worked: Fable 5.2
 
-## M4 resume notes (branch `m4-tool-pinning`, nothing committed on it yet except this file)
-- A Sonnet subagent was writing `internal/pin` (pin.go, pin_test.go), a `tools_after` field in
-  `internal/mockserver` and `testdata/rugpull.json` when the session stopped. Run `git status`:
-  - if those files exist uncommitted: review them against the API below, run `go test ./...`, fix or redo, then commit
-    (`feat: tool pin store`, `test: mock server can change its tools (rug pull)`);
-  - if they are missing or broken: `git checkout . && git clean -fd internal/pin testdata/rugpull.json` and redo.
+## M4 resume notes (branch `m4-tool-pinning`)
+- DONE and committed (Sonnet, reviewed by Fable, all tests pass): `internal/pin` store, mock server `tools_after`
+  (second `tools/list` returns a changed tool set), `testdata/rugpull.json`. Not wired into the firewall or CLI yet.
 - pin API the rest is designed against: `pin.Open(dir) *Store` (dir = `<state>/pins`, one JSON file per server, atomic save,
   no caching), `pin.Hash(tool) (hex, err)` = SHA-256 of canonical JSON of the WHOLE tool definition,
   `(*Store).Check(server, tools []json.RawMessage) ([]Status, error)` with `New` (pinned now) / `Same` / `Changed`
