@@ -1,0 +1,6 @@
+/agentwall
+/agentwall.exe
+/dist/
+*.test
+*.out
+.claude/
