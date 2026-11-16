@@ -4,6 +4,7 @@ package mockserver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 
@@ -84,4 +85,26 @@ func (sc *Scenario) handle(req *jsonrpc.Message) any {
 		return map[string]any{"content": []any{map[string]any{"type": "text", "text": string(p.Arguments)}}}
 	}
 	return nil
+}
+
+// EnvScenario names the scenario file for RunIfChild.
+const EnvScenario = "AGENTWALL_MOCK_SCENARIO"
+
+// RunIfChild turns this process into the mock server on stdio when EnvScenario
+// is set. Tests call it from TestMain to get a real subprocess without building
+// a second binary.
+func RunIfChild() {
+	path := os.Getenv(EnvScenario)
+	if path == "" {
+		return
+	}
+	sc, err := Load(path)
+	if err == nil {
+		err = Serve(os.Stdin, os.Stdout, sc)
+	}
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "mockserver:", err)
+		os.Exit(1)
+	}
+	os.Exit(0)
 }
