@@ -167,3 +167,22 @@ func TestLoad(t *testing.T) {
 		t.Error("expected error for missing file")
 	}
 }
+
+func TestFlowActions(t *testing.T) {
+	p, err := Parse([]byte(""))
+	if err != nil || p.OnTrifecta() != Deny || p.OnFingerprint() != Deny {
+		t.Fatalf("flow rules must deny by default, got %v/%v (err=%v)", p.OnTrifecta(), p.OnFingerprint(), err)
+	}
+	p, err = Parse([]byte("on_trifecta: ask\non_fingerprint: ask\n"))
+	if err != nil || p.OnTrifecta() != Ask || p.OnFingerprint() != Ask {
+		t.Fatalf("got %v/%v (err=%v)", p.OnTrifecta(), p.OnFingerprint(), err)
+	}
+	for _, bad := range []string{"on_trifecta: allow", "on_fingerprint: allow", "on_trifecta: nope"} {
+		if _, err := Parse([]byte(bad)); err == nil {
+			t.Fatalf("%q must be rejected: a flow rule can only deny or ask", bad)
+		}
+	}
+	if d := Default(); d.OnTrifecta() != Deny || d.OnFingerprint() != Deny {
+		t.Fatal("the built-in policy must deny on both flow rules")
+	}
+}

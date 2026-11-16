@@ -45,12 +45,22 @@ type tool struct {
 }
 
 type Policy struct {
-	def     Action
-	servers map[string]map[string]*tool
+	def           Action
+	onTrifecta    Action
+	onFingerprint Action
+	servers       map[string]map[string]*tool
 }
+
+// OnTrifecta is what happens to an egress call in a session that read both untrusted and private data: Deny or Ask.
+func (p *Policy) OnTrifecta() Action { return p.onTrifecta }
+
+// OnFingerprint is what happens to an egress call whose arguments contain known private text: Deny or Ask.
+func (p *Policy) OnFingerprint() Action { return p.onFingerprint }
 
 type rawPolicy struct {
 	DefaultAction string `yaml:"default_action"`
+	OnTrifecta    string `yaml:"on_trifecta"`
+	OnFingerprint string `yaml:"on_fingerprint"`
 	Servers       map[string]struct {
 		Tools map[string]struct {
 			Tags     []string          `yaml:"tags"`
@@ -97,7 +107,19 @@ func Parse(data []byte) (*Policy, error) {
 	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
-	p := &Policy{def: Allow, servers: map[string]map[string]*tool{}}
+	p := &Policy{def: Allow, onTrifecta: Deny, onFingerprint: Deny, servers: map[string]map[string]*tool{}}
+	for key, f := range map[string]struct {
+		raw string
+		dst *Action
+	}{"on_trifecta": {raw.OnTrifecta, &p.onTrifecta}, "on_fingerprint": {raw.OnFingerprint, &p.onFingerprint}} {
+		switch a := Action(f.raw); a {
+		case "":
+		case Deny, Ask:
+			*f.dst = a
+		default:
+			return nil, fmt.Errorf("policy: %s: %q is not deny or ask", key, f.raw)
+		}
+	}
 	if raw.DefaultAction != "" {
 		a, err := parseAction(raw.DefaultAction)
 		if err != nil {

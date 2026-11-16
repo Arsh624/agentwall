@@ -1,4 +1,8 @@
 default_action: allow
+# Flow rules (deny or ask): an egress_sink call is stopped when the session has read both
+# untrusted_source and private_source data, or when its arguments contain text seen in private data.
+on_trifecta: deny
+on_fingerprint: deny
 servers:
   # Issues and PRs are written by strangers (untrusted); repo reads may hit private data; writes are visible to others.
   github:
