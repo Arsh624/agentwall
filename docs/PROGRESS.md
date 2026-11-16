@@ -4,9 +4,9 @@ Any model picking this up: read this file, then `docs/PLAN.md`, then `git log --
 Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
-- Current milestone: M3 (M1 and M2 are code complete on their branches, PRs not opened yet — see blockers)
-- Next task: M3 — `internal/session` shared taint + trifecta rule in `internal/firewall` (tests first), on branch `m3-flow-control`
-- Branches: `main` = M0. `m1-jsonrpc-proxy` = M1. `m2-policy-audit` = M2, stacked on M1. `m3-flow-control` is stacked on M2.
+- Current milestone: M4 (M1, M2, M3 are code complete on their branches, PRs not opened yet — see blockers)
+- Next task: M4 — tool pinning `internal/pin` (Sonnet subagent), then hook it into `internal/firewall` + `agentwall approve`, on branch `m4-tool-pinning`
+- Branches (stacked, merge in this order): `main` = M0 → `m1-jsonrpc-proxy` → `m2-policy-audit` → `m3-flow-control` → `m4-tool-pinning`.
 - Model that last worked: Fable 5.2
 
 ## Blockers (need the user)
@@ -51,6 +51,18 @@ Continue from **Next task**. Update this file and commit after every task.
   - CLI: `wrap` loads policy (`--policy`, else `<state>/policy.yaml`, else built-in), `--server`; `verify`; `log [--tail]`.
   - Verified: all package tests + CLI end-to-end test (blocked call returns `-32001` with reason, both calls logged,
     tampered log fails `verify`); real binary smoke run.
+- M3 — flow control (branch `m3-flow-control`, all Fable):
+  - `internal/session`: taint markers as files `<state>/sessions/<id>/{untrusted,private}`; add-only, so no locks;
+    every wrap process of one agent sees the others' taint.
+  - `internal/flow`: `Fingerprints` (Rabin-Karp rolling hash over 8 lowercased words), `Strings` (all string values
+    in a JSON doc), `Store` (shared append-only file `<state>/fingerprints`, generation header, capped, oldest half dropped).
+  - `internal/policy`: `on_trifecta` / `on_fingerprint` settings (`deny` default, or `ask`).
+  - `internal/firewall`: response of a tagged tool taints the session (audited as `taint`) and fingerprints
+    `private_source` output BEFORE the agent sees it; an `egress_sink` call is denied/asked when the session holds both
+    taints (trifecta) or its arguments contain fingerprinted text. Policy `deny` still wins; stricter flow rule wins.
+  - Verified: heist scenario blocked at step 3 (firewall test + CLI test with three real wrap processes for
+    github/filesystem/fetch sharing one session), four benign sequences pass, fingerprint catches pasted text in a
+    fresh session, another agent's session is unaffected.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.
@@ -80,6 +92,14 @@ Continue from **Next task**. Update this file and commit after every task.
 - `wrap` gets a `--server NAME` flag (policy and pins are keyed by server). Default: text after `server-` in the
   wrapped command (`@modelcontextprotocol/server-github` → `github`), else the command's base name.
 - State dir `~/.agentwall`, env `AGENTWALL_HOME` overrides (tests use it).
+- Taint is recorded on the RESPONSE (that is when the agent learns the data), for errors too.
+  If taint or fingerprints cannot be recorded, the result is withheld (error to the agent). Fail closed.
+- Fingerprint store evicts oldest-first (FIFO), not true LRU: an append-only shared file gives insertion order for
+  free; LRU would need cross-process bookkeeping. Cap 2^18 fingerprints (~1.5 MB of text).
+- Fingerprint words are lowercased letters/digits only, so case/spacing/punctuation changes do not hide a copy.
+  One matching 8-word window is enough to block.
+- The trifecta rule lives in `internal/firewall` (it needs session + policy + audit together); `internal/flow` holds
+  only fingerprinting.
 
 ## Known issues / notes for next session
 - Follow-up issues to open once gh works:
@@ -94,3 +114,11 @@ Continue from **Next task**. Update this file and commit after every task.
 - `ask` prompting on the terminal while Claude Code's TUI owns it is untested — check by hand in M8.
 - The firewall tests were written together with the code while the policy/audit subagents were still running,
   so they were never seen failing first.
+- CHECK IN M8: session id = parent pid assumes the agent starts `agentwall` directly. If Claude Code on Windows goes
+  through `cmd /c`, every server gets a different parent and cross-server taint is lost (fails OPEN). Then document
+  `AGENTWALL_SESSION` in the `.mcp.json` snippet or find a better default.
+- Fingerprints block the normal "read private file, edit, write it back through an egress tool" workflow
+  (e.g. github `create_or_update_file` after `get_file_contents`). Escape hatches today: `on_fingerprint: ask`, or
+  remove the `egress_sink` tag from that tool. Worth a follow-up issue (e.g. per-tool exemption).
+- Fingerprints miss short secrets (< 8 words) and re-encoded text (base64). Say so in the threat model (M9).
+- Parent pid reuse can hand old taint to a new agent (fails closed). Reset: delete `<state>/sessions`.
