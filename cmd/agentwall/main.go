@@ -14,8 +14,10 @@ import (
 
 	"github.com/agentwall/agentwall/internal/audit"
 	"github.com/agentwall/agentwall/internal/firewall"
+	"github.com/agentwall/agentwall/internal/flow"
 	"github.com/agentwall/agentwall/internal/policy"
 	"github.com/agentwall/agentwall/internal/proxy"
+	"github.com/agentwall/agentwall/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -170,7 +172,16 @@ func runWrap(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer log.Close()
-	fw := &firewall.Firewall{Server: server, Session: sessionID(), Policy: pol, Audit: log, Ask: firewall.TerminalAsk}
+	sess, err := session.Open(stateDir(), sessionID())
+	if err != nil {
+		return err
+	}
+	prints, err := flow.OpenStore(filepath.Join(stateDir(), "fingerprints"))
+	if err != nil {
+		return err
+	}
+	defer prints.Close()
+	fw := &firewall.Firewall{Server: server, Session: sess, Policy: pol, Audit: log, Prints: prints, Ask: firewall.TerminalAsk}
 	return proxy.Wrap(cmd.Context(), args, nil, cmd.InOrStdin(), cmd.OutOrStdout(), fw.Hooks())
 }
 
