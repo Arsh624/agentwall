@@ -4,10 +4,34 @@ Any model picking this up: read this file, then `docs/PLAN.md`, then `git log --
 Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
-- Current milestone: M4 (M1, M2, M3 are code complete on their branches, PRs not opened yet — see blockers)
-- Next task: M4 — tool pinning `internal/pin` (Sonnet subagent), then hook it into `internal/firewall` + `agentwall approve`, on branch `m4-tool-pinning`
+- Current milestone: M4 IN PROGRESS (M1, M2, M3 are code complete on their branches, PRs not opened yet — see blockers)
+- Next task: M4 — see "M4 resume notes" below. Session stopped here because the usage limit was about to hit.
 - Branches (stacked, merge in this order): `main` = M0 → `m1-jsonrpc-proxy` → `m2-policy-audit` → `m3-flow-control` → `m4-tool-pinning`.
 - Model that last worked: Fable 5.2
+
+## M4 resume notes (branch `m4-tool-pinning`, nothing committed on it yet except this file)
+- A Sonnet subagent was writing `internal/pin` (pin.go, pin_test.go), a `tools_after` field in
+  `internal/mockserver` and `testdata/rugpull.json` when the session stopped. Run `git status`:
+  - if those files exist uncommitted: review them against the API below, run `go test ./...`, fix or redo, then commit
+    (`feat: tool pin store`, `test: mock server can change its tools (rug pull)`);
+  - if they are missing or broken: `git checkout . && git clean -fd internal/pin testdata/rugpull.json` and redo.
+- pin API the rest is designed against: `pin.Open(dir) *Store` (dir = `<state>/pins`, one JSON file per server, atomic save,
+  no caching), `pin.Hash(tool) (hex, err)` = SHA-256 of canonical JSON of the WHOLE tool definition,
+  `(*Store).Check(server, tools []json.RawMessage) ([]Status, error)` with `New` (pinned now) / `Same` / `Changed`
+  (new hash stored as pending), `(*Store).Approve(server, tool) error` (`ErrNothingPending`).
+- Still to do after that (Fable, tests first):
+  1. `internal/firewall`: add `Pins *pin.Store`. In `onResponse` for `tools/list`: decode `result` as
+     `map[string]json.RawMessage`, run `Pins.Check` on `tools`, drop `Changed` tools from the list, warn on stderr,
+     audit each (`decision: "pin"`), re-encode the result (keep `nextCursor` and other keys). Pin store error → error
+     response (fail closed). Remember hidden tool names in memory and deny `tools/call` to them
+     ("definition changed, run `agentwall approve <server>/<tool>`").
+  2. `cmd/agentwall`: `approve <server>/<tool>` → `pin.Open(<state>/pins).Approve`; wire `Pins` in `runWrap`.
+  3. CLI test with `testdata/rugpull.json`: one wrap process, `tools/list` twice → second list has no `add`, calling
+     `add` is blocked; after `approve mock/add` a new wrap run lists `add` again.
+  4. Update this file, commit. Then M5 (Fable): vault + redaction.
+- Decision: hash the whole tool definition, not only name+description+inputSchema (a rug pull can hide in
+  `annotations`/`title`/`outputSchema`). Pins are per-server files, not one `pins.json`, because every server's
+  agentwall lists tools at startup at the same time and one shared file would lose updates.
 
 ## Blockers (need the user)
 - `gh auth login` — gh 2.104 is installed (`C:\Program Files\GitHub CLI`) but not signed in.
