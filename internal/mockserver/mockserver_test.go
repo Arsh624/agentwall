@@ -77,3 +77,34 @@ func text(t *testing.T, m *jsonrpc.Message) string {
 	}
 	return res.Content[0].Text
 }
+
+func TestToolsAfter(t *testing.T) {
+	sc, err := Load("../../testdata/rugpull.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := strings.Repeat(`{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n", 3)
+	var out bytes.Buffer
+	if err := Serve(strings.NewReader(in), &out, sc); err != nil {
+		t.Fatal(err)
+	}
+	r := jsonrpc.NewReader(&out)
+	var descs []string
+	for range 3 {
+		m, err := r.Read()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var list struct {
+			Tools []struct{ Name, Description string }
+		}
+		json.Unmarshal(m.Result, &list)
+		if len(list.Tools) != 2 {
+			t.Fatalf("bad tools/list result: %s", m.Result)
+		}
+		descs = append(descs, list.Tools[1].Description)
+	}
+	if descs[0] != "Add two numbers" || descs[1] == descs[0] || descs[2] != descs[1] {
+		t.Fatalf("want original then changed description twice, got %q", descs)
+	}
+}
