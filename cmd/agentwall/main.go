@@ -1,14 +1,19 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"os"
+	"os/signal"
 
+	"github.com/agentwall/agentwall/internal/proxy"
 	"github.com/spf13/cobra"
 )
 
 func main() {
-	if err := newRootCmd().Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+	if err := newRootCmd().ExecuteContext(ctx); err != nil {
 		os.Exit(1)
 	}
 }
@@ -19,10 +24,14 @@ func newRootCmd() *cobra.Command {
 		SilenceUsage: true,
 	}
 
-	wrap := stub(&cobra.Command{
+	wrap := &cobra.Command{
 		Use:   "wrap [--policy file] -- <cmd> [args...]",
 		Short: "Run an MCP server behind the firewall (stdio)",
-	})
+		Args:  cobra.MinimumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return proxy.Wrap(cmd.Context(), args, nil, cmd.InOrStdin(), cmd.OutOrStdout(), proxy.Hooks{})
+		},
+	}
 	wrap.Flags().String("policy", "", "policy file")
 
 	proxy := stub(&cobra.Command{
