@@ -5,9 +5,11 @@ Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
 - Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
-- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12). CI green on ubuntu/windows/macos (+ race detector on Linux).
-- Current milestone: M4 code complete on `m4-tool-pinning`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
-- Next task: M5 — credential broker + redaction `[FABLE]`, branch `m5-credential-broker`, issue #5.
+- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19). CI green on ubuntu/windows/macos (+ race detector on Linux).
+- Current milestone: M5 code complete on `m5-credential-broker`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
+- Next task: M6 — injection heuristics `[SONNET]`, branch `m6-injection-heuristics`, issue #6. Subagent writes
+  `internal/detect` + corpus in `testdata/injections/`; Fable wires it into `firewall.onResponse` (score ≥ threshold →
+  `Session.Add(session.Untrusted)` + audit entry `detect`; never blocks on its own).
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
   #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
 - Model that last worked: Fable 5.2
@@ -68,6 +70,20 @@ Continue from **Next task**. Update this file and commit after every task.
   - CLI: `agentwall approve <server>/<tool>`.
   - Verified: rug-pull scenario end to end (`testdata/rugpull.json`): tool hidden on the second list, call blocked,
     visible again after approve.
+- M5 — credential broker + redaction (branch `m5-credential-broker`, all Fable):
+  - `internal/vault`: `Open(stateDir)` → OS keychain (go-keyring; one entry per secret + an index entry), or an
+    AES-256-GCM file `<state>/vault.enc` keyed by PBKDF2 (600k) from `AGENTWALL_PASSPHRASE` when that env var is set.
+    `Set` / `Get` / `List` / `All`.
+  - `vault.Redactor`: `Text` and `JSON` replace vault values (≥ 8 chars, longest first) with `[REDACTED:<name>]` and
+    known token formats (GitHub, `sk-…`, Slack, AWS key id, private key blocks) with `[REDACTED:<kind>]`. JSON is
+    redacted on decoded strings, so escaping cannot hide a secret; untouched documents come back byte for byte.
+  - `internal/policy`: `servers.<name>.env: {VAR: "vault:<secret>"}`; literals are rejected.
+  - `internal/firewall`: every upstream answer (result, error message, error data) is redacted first, then pinned /
+    tainted / fingerprinted; redactions are audited by name (`redact`).
+  - CLI: `agentwall secret set NAME` (value from stdin), `agentwall secret list`; `wrap` builds the server env =
+    our env − `AGENTWALL_PASSPHRASE` + the server's vault secrets, and refuses to start if one is missing.
+  - Verified end to end: upstream receives the token (mock `printenv` tool), the agent sees `[REDACTED:github]`,
+    the passphrase is not passed on, another server does not get the token, no file holds the token in clear text.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.
@@ -110,6 +126,12 @@ Continue from **Next task**. Update this file and commit after every task.
 - A changed tool is detected when a `tools/list` RESULT arrives. A call sent before that result is not blocked
   (the agent has not seen the new description yet).
 - CI runs on pull requests and on pushes to `main` only (not twice per PR).
+- Vault backend choice: `AGENTWALL_PASSPHRASE` set → encrypted file, otherwise the OS keychain. No automatic
+  fallback: a silent switch of backend would hide where secrets live. No keychain and no passphrase → `wrap` still
+  runs with pattern-only redaction (warning on stderr) unless the policy needs a secret for that server.
+- `secret list` was added (names only) because a keychain cannot be listed by hand; there is no `secret get` on
+  purpose (nothing should print a secret).
+- Vault values shorter than 8 characters are stored but not redacted (they would blank ordinary text).
 
 ## Known issues / notes for next session
 - Follow-up issues to open once gh works:
@@ -132,3 +154,6 @@ Continue from **Next task**. Update this file and commit after every task.
   remove the `egress_sink` tag from that tool. Worth a follow-up issue (e.g. per-tool exemption).
 - Fingerprints miss short secrets (< 8 words) and re-encoded text (base64). Say so in the threat model (M9).
 - Parent pid reuse can hand old taint to a new agent (fails closed). Reset: delete `<state>/sessions`.
+- `secret set` echoes the value when typed at a terminal (hiding it needs x/term, not an allowed dependency). Pipe it in.
+- Server notifications (e.g. `notifications/message` logs) are not redacted: only answers to agent requests go through the hooks (issue #16).
+- The vault tests and the M5 CLI wiring were written together with the code, not seen failing first (the redactor, policy env, firewall and CLI tests were).
