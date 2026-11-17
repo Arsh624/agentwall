@@ -12,12 +12,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agentwall/agentwall/internal/audit"
-	"github.com/agentwall/agentwall/internal/firewall"
-	"github.com/agentwall/agentwall/internal/flow"
-	"github.com/agentwall/agentwall/internal/policy"
-	"github.com/agentwall/agentwall/internal/proxy"
-	"github.com/agentwall/agentwall/internal/session"
+	"github.com/Arsh624/agentwall/internal/audit"
+	"github.com/Arsh624/agentwall/internal/firewall"
+	"github.com/Arsh624/agentwall/internal/flow"
+	"github.com/Arsh624/agentwall/internal/policy"
+	"github.com/Arsh624/agentwall/internal/proxy"
+	"github.com/Arsh624/agentwall/internal/session"
 	"github.com/spf13/cobra"
 )
 

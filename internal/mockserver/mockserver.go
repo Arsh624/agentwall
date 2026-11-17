@@ -8,7 +8,7 @@ import (
 	"io"
 	"os"
 
-	"github.com/agentwall/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/jsonrpc"
 )
 
 // Scenario scripts the server. A tools/call for a tool missing from Calls

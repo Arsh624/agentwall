@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentwall/agentwall/internal/mockserver"
+	"github.com/Arsh624/agentwall/internal/mockserver"
 )
 
 func TestMain(m *testing.M) {

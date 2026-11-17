@@ -6,10 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentwall/agentwall/internal/audit"
-	"github.com/agentwall/agentwall/internal/jsonrpc"
-	"github.com/agentwall/agentwall/internal/policy"
-	"github.com/agentwall/agentwall/internal/proxy"
+	"github.com/Arsh624/agentwall/internal/audit"
+	"github.com/Arsh624/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/policy"
+	"github.com/Arsh624/agentwall/internal/proxy"
 )
 
 const (

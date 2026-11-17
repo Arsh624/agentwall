@@ -6,11 +6,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentwall/agentwall/internal/audit"
-	"github.com/agentwall/agentwall/internal/flow"
-	"github.com/agentwall/agentwall/internal/jsonrpc"
-	"github.com/agentwall/agentwall/internal/policy"
-	"github.com/agentwall/agentwall/internal/session"
+	"github.com/Arsh624/agentwall/internal/audit"
+	"github.com/Arsh624/agentwall/internal/flow"
+	"github.com/Arsh624/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/policy"
+	"github.com/Arsh624/agentwall/internal/session"
 )
 
 const testPolicy = `

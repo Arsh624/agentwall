@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/agentwall/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/jsonrpc"
 )
 
 func TestServe(t *testing.T) {

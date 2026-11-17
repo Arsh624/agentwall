@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentwall/agentwall/internal/jsonrpc"
-	"github.com/agentwall/agentwall/internal/mockserver"
+	"github.com/Arsh624/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/mockserver"
 )
 
 func TestMain(m *testing.M) {

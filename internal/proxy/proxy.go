@@ -6,7 +6,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/agentwall/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/jsonrpc"
 )
 
 // CodeBlocked is the JSON-RPC error code the agent gets for a denied call.
