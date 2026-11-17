@@ -106,10 +106,12 @@ func newRootCmd() *cobra.Command {
 	logCmd.Flags().Bool("tail", false, "keep printing new entries")
 
 	root.AddCommand(
-		stub(&cobra.Command{
+		&cobra.Command{
 			Use:   "init",
-			Short: "Write the default policy and detect Claude Code / Cursor config",
-		}),
+			Short: "Write the default policy and show how to wrap your Claude Code / Cursor servers",
+			Args:  cobra.NoArgs,
+			RunE:  runInit,
+		},
 		wrap,
 		proxyCmd,
 		secret,

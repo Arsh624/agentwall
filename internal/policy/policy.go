@@ -83,6 +83,9 @@ type rawPolicy struct {
 //go:embed default.yaml
 var defaultYAML []byte
 
+// DefaultYAML returns the text of the built-in policy, for writing a starter policy file.
+func DefaultYAML() []byte { return defaultYAML }
+
 // Default returns the built-in policy. It panics if the embedded file is invalid.
 func Default() *Policy {
 	p, err := Parse(defaultYAML)
