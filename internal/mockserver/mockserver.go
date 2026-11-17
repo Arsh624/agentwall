@@ -89,6 +89,13 @@ func (sc *Scenario) handle(req *jsonrpc.Message) any {
 		if result, ok := sc.Calls[p.Name]; ok {
 			return result
 		}
+		if p.Name == "printenv" { // lets tests see what environment the server was started with
+			var a struct {
+				Name string `json:"name"`
+			}
+			json.Unmarshal(p.Arguments, &a)
+			return map[string]any{"content": []any{map[string]any{"type": "text", "text": os.Getenv(a.Name)}}}
+		}
 		return map[string]any{"content": []any{map[string]any{"type": "text", "text": string(p.Arguments)}}}
 	}
 	return nil
