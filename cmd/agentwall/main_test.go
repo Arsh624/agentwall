@@ -31,10 +31,20 @@ func run(t *testing.T, stdin string, args ...string) (string, error) {
 }
 
 func TestStubCommandsRegistered(t *testing.T) {
-	for _, line := range []string{"init", "proxy", "attack"} {
+	for _, line := range []string{"init", "proxy"} {
 		if _, err := run(t, "", strings.Fields(line)...); err == nil || err.Error() != "not implemented" {
 			t.Fatalf("%q: error = %v, want %q", line, err, "not implemented")
 		}
+	}
+}
+
+func TestAttackSuitePasses(t *testing.T) {
+	out, err := run(t, "", "attack")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	if !strings.Contains(out, "blocked 5/5 attacks, false positives 0/4") {
+		t.Fatalf("unexpected output:\n%s", out)
 	}
 }
 

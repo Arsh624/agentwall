@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/signal"
 	"path"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arsh624/agentwall/attacks"
+	"github.com/Arsh624/agentwall/internal/attack"
 	"github.com/Arsh624/agentwall/internal/audit"
 	"github.com/Arsh624/agentwall/internal/firewall"
 	"github.com/Arsh624/agentwall/internal/pin"
@@ -122,10 +125,12 @@ func newRootCmd() *cobra.Command {
 				return nil
 			},
 		},
-		stub(&cobra.Command{
+		&cobra.Command{
 			Use:   "attack",
 			Short: "Run the attack suite and print the score",
-		}),
+			Args:  cobra.NoArgs,
+			RunE:  runAttack,
+		},
 		logCmd,
 	)
 	return root
@@ -255,6 +260,26 @@ func runWrap(cmd *cobra.Command, args []string) error {
 	}
 	defer fw.Close()
 	return proxy.Wrap(cmd.Context(), args, env, cmd.InOrStdin(), cmd.OutOrStdout(), fw.Hooks())
+}
+
+func runAttack(cmd *cobra.Command, _ []string) error {
+	log.SetOutput(io.Discard) // the firewall's warnings would clutter the table
+	scs, err := attack.Load(attacks.FS)
+	if err != nil {
+		return err
+	}
+	var results []attack.Result
+	for _, sc := range scs {
+		r, err := attack.Run(sc)
+		if err != nil {
+			return fmt.Errorf("%s: %w", sc.Name, err)
+		}
+		results = append(results, r)
+	}
+	if !attack.Report(cmd.OutOrStdout(), results) {
+		return errors.New("the attack suite found a gap")
+	}
+	return nil
 }
 
 func runLog(cmd *cobra.Command, _ []string) error {
