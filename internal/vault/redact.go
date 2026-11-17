@@ -12,16 +12,21 @@ import (
 const minSecretLen = 8
 
 // tokenPatterns catch well-known credential formats that are not in the vault.
+// A regexp costs ~30 ns per byte, so it only runs on text that contains one of
+// its hints: a literal every match must include, found with a fast substring search.
 var tokenPatterns = []struct {
-	kind string
-	re   *regexp.Regexp
+	kind  string
+	hints []string
+	re    *regexp.Regexp
 }{
-	{"github-token", regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})`)},
-	{"api-key", regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`)},
-	{"slack-token", regexp.MustCompile(`\bxox[abeprs]-[A-Za-z0-9-]{10,}`)},
-	{"aws-key", regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
-	{"private-key", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`)},
+	{"github-token", githubHints, regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})`)},
+	{"api-key", []string{"sk-"}, regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`)},
+	{"slack-token", []string{"xox"}, regexp.MustCompile(`\bxox[abeprs]-[A-Za-z0-9-]{10,}`)},
+	{"aws-key", []string{"AKIA", "ASIA"}, regexp.MustCompile(`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`)},
+	{"private-key", []string{"PRIVATE KEY-----"}, regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`)},
 }
+
+var githubHints = []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"}
 
 // Redactor replaces secrets with [REDACTED:<name>] before the agent sees them.
 type Redactor struct {
@@ -61,7 +66,7 @@ func (r *Redactor) Text(s string) (string, []string) {
 		}
 	}
 	for _, p := range tokenPatterns {
-		if p.re.MatchString(s) {
+		if slices.ContainsFunc(p.hints, func(h string) bool { return strings.Contains(s, h) }) && p.re.MatchString(s) {
 			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.kind+"]")
 			note(p.kind)
 		}

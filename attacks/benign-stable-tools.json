@@ -1,0 +1,21 @@
+{
+  "name": "benign-stable-tools",
+  "description": "A server whose tool definitions never change must not trip the rug-pull check.",
+  "kind": "benign",
+  "servers": {
+    "calc": {
+      "tools": [
+        {"name": "add", "description": "Add two numbers", "inputSchema": {"type": "object", "properties": {"a": {"type": "number"}, "b": {"type": "number"}}}}
+      ],
+      "calls": {
+        "add": {"content": [{"type": "text", "text": "5"}]}
+      }
+    }
+  },
+  "steps": [
+    {"server": "calc", "list": true, "expect": "allow", "contains": ["add"]},
+    {"server": "calc", "tool": "add", "args": {"a": 2, "b": 3}, "expect": "allow"},
+    {"server": "calc", "list": true, "expect": "allow", "contains": ["add"]},
+    {"server": "calc", "tool": "add", "args": {"a": 2, "b": 3}, "expect": "allow"}
+  ]
+}

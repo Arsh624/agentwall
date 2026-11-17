@@ -5,12 +5,11 @@ Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
 - Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
-- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20). CI green on ubuntu/windows/macos (+ race detector on Linux).
-- Current milestone: M6 code complete on `m6-injection-heuristics`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
-- Next task: M7 — attack suite + benchmarks `[SONNET]`, branch `m7-attack-suite`, issue #7. Plan: Fable first moves
-  the firewall construction out of `cmd/agentwall` into `firewall.Open(Config)` so the attack runner can build the same
-  firewall in-process; then a Sonnet subagent writes `attacks/*.json` (embedded), the runner, `agentwall attack`, the CI
-  step; a second Sonnet task does `bench_test.go`, `scripts/load` and `docs/BENCHMARKS.md`.
+- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20), M6 (#21). CI green on ubuntu/windows/macos (+ race detector on Linux).
+- Current milestone: M7 code complete on `m7-attack-suite`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
+- Next task: M8 — real-world integration `[FABLE]`, branch `m8-real-world`, issue #8: `agentwall init`, a hand test
+  with a real MCP server through Claude Code (check issue #18: is the parent pid shared by all servers?), basic
+  Streamable HTTP mode (`agentwall proxy --upstream URL`) reusing the same hooks (add the frame cap, issue #14).
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
   #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
 - Model that last worked: Fable 5.2
@@ -94,6 +93,16 @@ Continue from **Next task**. Update this file and commit after every task.
   - `internal/firewall` (Fable): `scan` runs on every `tools/call` result of a session that is not yet untrusted;
     a suspicious result marks the session `untrusted` and is audited as `detect` with the signal names. It never blocks.
   - Verified: an injection returned by an UNTAGGED tool taints the session and then completes the trifecta.
+- M7 — attack suite + benchmarks (branch `m7-attack-suite`):
+  - `firewall.Open(Config)` (Fable): one constructor used by `wrap`, the attack runner, tests and benchmarks.
+  - `attacks/*.json` + `internal/attack` (Sonnet): 5 attacks (github heist, rug pull, secret exfil via fetch,
+    zero-width injection, fingerprint across sessions) and 4 benign controls, embedded in the binary, replayed through
+    the real proxy + firewall against in-process mock servers. `agentwall attack` prints the table and
+    `blocked 5/5 attacks, false positives 0/4`; exit code 1 on any regression. CI runs it on all three OSes.
+  - Benchmarks (Sonnet): `internal/firewall/bench_test.go`, `scripts/load` (real processes, direct vs wrapped,
+    p50/p99), hidden `agentwall mock-server <scenario.json>`, `docs/BENCHMARKS.md` with the measured numbers:
+    added p99 about 0.2 ms at 1 KB and 0.5 ms at 10 KB (target < 2 ms).
+  - Redaction regexps now run only on strings containing a token hint (Fable): halved the per-call cost.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.

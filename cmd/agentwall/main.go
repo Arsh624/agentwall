@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"log"
 	"os"
 	"os/signal"
 	"path"
@@ -14,13 +15,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Arsh624/agentwall/attacks"
+	"github.com/Arsh624/agentwall/internal/attack"
 	"github.com/Arsh624/agentwall/internal/audit"
 	"github.com/Arsh624/agentwall/internal/firewall"
-	"github.com/Arsh624/agentwall/internal/flow"
+	"github.com/Arsh624/agentwall/internal/mockserver"
 	"github.com/Arsh624/agentwall/internal/pin"
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/proxy"
-	"github.com/Arsh624/agentwall/internal/session"
 	"github.com/Arsh624/agentwall/internal/vault"
 	"github.com/spf13/cobra"
 )
@@ -124,11 +126,26 @@ func newRootCmd() *cobra.Command {
 				return nil
 			},
 		},
-		stub(&cobra.Command{
+		&cobra.Command{
 			Use:   "attack",
 			Short: "Run the attack suite and print the score",
-		}),
+			Args:  cobra.NoArgs,
+			RunE:  runAttack,
+		},
 		logCmd,
+		&cobra.Command{
+			Use:    "mock-server <scenario.json>",
+			Short:  "Run a scripted mock MCP server on stdio (for benchmarks)",
+			Hidden: true,
+			Args:   cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				sc, err := mockserver.Load(args[0])
+				if err != nil {
+					return err
+				}
+				return mockserver.Serve(cmd.InOrStdin(), cmd.OutOrStdout(), sc)
+			},
+		},
 	)
 	return root
 }
@@ -152,8 +169,8 @@ func stateDir() string {
 	return filepath.Join(home, ".agentwall")
 }
 
-func auditPath() string { return filepath.Join(stateDir(), "audit.jsonl") }
-func pinsDir() string   { return filepath.Join(stateDir(), "pins") }
+func auditPath() string { return firewall.AuditPath(stateDir()) }
+func pinsDir() string   { return firewall.PinsDir(stateDir()) }
 
 func loadPolicy(flag string) (*policy.Policy, error) {
 	if flag != "" {
@@ -250,23 +267,33 @@ func runWrap(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	log, err := audit.Open(auditPath())
+	fw, err := firewall.Open(firewall.Config{StateDir: stateDir(), Server: server, Session: sessionID(),
+		Policy: pol, Secrets: secrets, Ask: firewall.TerminalAsk})
 	if err != nil {
 		return err
 	}
-	defer log.Close()
-	sess, err := session.Open(stateDir(), sessionID())
-	if err != nil {
-		return err
-	}
-	prints, err := flow.OpenStore(filepath.Join(stateDir(), "fingerprints"))
-	if err != nil {
-		return err
-	}
-	defer prints.Close()
-	fw := &firewall.Firewall{Server: server, Session: sess, Policy: pol, Audit: log, Prints: prints,
-		Pins: pin.Open(pinsDir()), Redact: vault.NewRedactor(secrets), Ask: firewall.TerminalAsk}
+	defer fw.Close()
 	return proxy.Wrap(cmd.Context(), args, env, cmd.InOrStdin(), cmd.OutOrStdout(), fw.Hooks())
+}
+
+func runAttack(cmd *cobra.Command, _ []string) error {
+	log.SetOutput(io.Discard) // the firewall's warnings would clutter the table
+	scs, err := attack.Load(attacks.FS)
+	if err != nil {
+		return err
+	}
+	var results []attack.Result
+	for _, sc := range scs {
+		r, err := attack.Run(sc)
+		if err != nil {
+			return fmt.Errorf("%s: %w", sc.Name, err)
+		}
+		results = append(results, r)
+	}
+	if !attack.Report(cmd.OutOrStdout(), results) {
+		return errors.New("the attack suite found a gap")
+	}
+	return nil
 }
 
 func runLog(cmd *cobra.Command, _ []string) error {

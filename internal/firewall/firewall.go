@@ -5,9 +5,11 @@ package firewall
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -36,6 +38,43 @@ type Firewall struct {
 
 	mu     sync.Mutex
 	hidden map[string]bool // tools whose definition changed since it was pinned
+}
+
+// Config is what one agentwall process needs to guard one server.
+type Config struct {
+	StateDir string // shared by every agentwall process of this user
+	Server   string // name the policy knows the upstream by
+	Session  string // shared by the agentwall processes of one agent
+	Policy   *policy.Policy
+	Secrets  map[string]string // vault values to redact, by name
+	Ask      func(question string) bool
+}
+
+func AuditPath(stateDir string) string { return filepath.Join(stateDir, "audit.jsonl") }
+func PinsDir(stateDir string) string   { return filepath.Join(stateDir, "pins") }
+
+// Open builds a Firewall on the shared state directory. Close it when done.
+func Open(c Config) (*Firewall, error) {
+	log, err := audit.Open(AuditPath(c.StateDir))
+	if err != nil {
+		return nil, err
+	}
+	sess, err := session.Open(c.StateDir, c.Session)
+	if err != nil {
+		log.Close()
+		return nil, err
+	}
+	prints, err := flow.OpenStore(filepath.Join(c.StateDir, "fingerprints"))
+	if err != nil {
+		log.Close()
+		return nil, err
+	}
+	return &Firewall{Server: c.Server, Session: sess, Policy: c.Policy, Audit: log, Prints: prints,
+		Pins: pin.Open(PinsDir(c.StateDir)), Redact: vault.NewRedactor(c.Secrets), Ask: c.Ask}, nil
+}
+
+func (f *Firewall) Close() error {
+	return errors.Join(f.Audit.Close(), f.Prints.Close())
 }
 
 func (f *Firewall) Hooks() proxy.Hooks {
