@@ -43,7 +43,7 @@ Pick one:
 - Install script (Linux and macOS). It downloads the release and verifies its checksum: `curl -fsSL https://raw.githubusercontent.com/Arsh624/agentwall/main/install.sh | sh`
 - Binary: download it from the Releases page on GitHub.
 
-No release has been published yet; use `go install` until then.
+The latest release is [v0.1.0](https://github.com/Arsh624/agentwall/releases/tag/v0.1.0). It has binaries for Linux, macOS and Windows (amd64 and arm64) and a `checksums.txt` file. The install script was run once on Linux (Ubuntu under WSL) and installed a working binary. The macOS and Windows binaries were built by the release workflow but have not been run by hand.
 
 ## Quick start
 
