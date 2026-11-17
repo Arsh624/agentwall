@@ -4,31 +4,64 @@ default_action: allow
 on_trifecta: deny
 on_fingerprint: deny
 servers:
-  # Issues and PRs are written by strangers (untrusted); repo reads may hit private data; writes are visible to others.
+  # Issues, PRs and discussions are written by strangers (untrusted); repo reads may hit private data;
+  # writes are visible to others. Covers the tool names of both github/github-mcp-server and the older
+  # @modelcontextprotocol/server-github.
   github:
     tools:
+      issue_read: {tags: [untrusted_source]}
       get_issue: {tags: [untrusted_source]}
+      get_issue_comments: {tags: [untrusted_source]}
       list_issues: {tags: [untrusted_source]}
       search_issues: {tags: [untrusted_source]}
-      get_issue_comments: {tags: [untrusted_source]}
+      pull_request_read: {tags: [untrusted_source]}
       get_pull_request: {tags: [untrusted_source]}
-      list_pull_requests: {tags: [untrusted_source]}
       get_pull_request_comments: {tags: [untrusted_source]}
       get_pull_request_reviews: {tags: [untrusted_source]}
+      list_pull_requests: {tags: [untrusted_source]}
+      search_pull_requests: {tags: [untrusted_source]}
+      get_discussion: {tags: [untrusted_source]}
+      get_discussion_comments: {tags: [untrusted_source]}
+      list_discussions: {tags: [untrusted_source]}
+      list_notifications: {tags: [untrusted_source]}
+      notification_details: {tags: [untrusted_source]}
       get_file_contents: {tags: [private_source]}
+      get_repository_tree: {tags: [private_source]}
       search_code: {tags: [private_source]}
+      search_commits: {tags: [private_source]}
       list_commits: {tags: [private_source]}
       get_commit: {tags: [private_source]}
+      get_gist: {tags: [private_source]}
+      list_gists: {tags: [private_source]}
+      get_job_logs: {tags: [private_source]}
+      get_secret_scanning_alert: {tags: [private_source]}
+      list_secret_scanning_alerts: {tags: [private_source]}
+      get_code_scanning_alert: {tags: [private_source]}
+      list_code_scanning_alerts: {tags: [private_source]}
+      get_dependabot_alert: {tags: [private_source]}
+      list_dependabot_alerts: {tags: [private_source]}
       create_pull_request: {tags: [egress_sink]}
+      create_pull_request_with_copilot: {tags: [egress_sink]}
+      update_pull_request: {tags: [egress_sink]}
+      pull_request_review_write: {tags: [egress_sink]}
+      add_comment_to_pending_review: {tags: [egress_sink]}
+      add_reply_to_pull_request_comment: {tags: [egress_sink]}
       create_issue: {tags: [egress_sink]}
-      add_issue_comment: {tags: [egress_sink]}
       update_issue: {tags: [egress_sink]}
+      issue_write: {tags: [egress_sink]}
+      sub_issue_write: {tags: [egress_sink]}
+      add_issue_comment: {tags: [egress_sink]}
+      update_issue_comment: {tags: [egress_sink]}
+      assign_copilot_to_issue: {tags: [egress_sink]}
+      discussion_comment_write: {tags: [egress_sink]}
       create_or_update_file: {tags: [egress_sink]}
       push_files: {tags: [egress_sink]}
+      delete_file: {tags: [egress_sink]}
       create_repository: {tags: [egress_sink]}
       fork_repository: {tags: [egress_sink]}
       create_branch: {tags: [egress_sink]}
       create_gist: {tags: [egress_sink]}
+      update_gist: {tags: [egress_sink]}
   # Local files can hold private data; nothing here sends data out.
   filesystem:
     tools:
@@ -38,6 +71,7 @@ servers:
       read_multiple_files: {tags: [private_source]}
       search_files: {tags: [private_source]}
       list_directory: {tags: [private_source]}
+      list_directory_with_sizes: {tags: [private_source]}
       directory_tree: {tags: [private_source]}
       get_file_info: {tags: [private_source]}
   # Web content is untrusted, and a URL can carry data out.

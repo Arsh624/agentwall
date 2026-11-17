@@ -52,27 +52,55 @@ type ParseError struct {
 func (e *ParseError) Error() string { return "jsonrpc: bad frame: " + e.Err.Error() }
 func (e *ParseError) Unwrap() error { return e.Err }
 
-// Reader reads newline-delimited frames (the MCP stdio framing).
-type Reader struct{ br *bufio.Reader }
+// MaxFrame caps one frame, so a hostile peer cannot make us buffer without end.
+var MaxFrame = 64 << 20
 
-func NewReader(r io.Reader) *Reader { return &Reader{bufio.NewReaderSize(r, 64<<10)} }
+// ErrFrameTooLarge ends a stream: after it the reader cannot find the next frame.
+var ErrFrameTooLarge = errors.New("jsonrpc: frame larger than the limit")
+
+// Reader reads newline-delimited frames (the MCP stdio framing).
+type Reader struct {
+	br  *bufio.Reader
+	err error // sticky
+}
+
+func NewReader(r io.Reader) *Reader { return &Reader{br: bufio.NewReaderSize(r, 64<<10)} }
 
 // Read returns the next frame, io.EOF at the end, or a *ParseError for a bad line.
 func (r *Reader) Read() (*Message, error) {
-	for {
-		// shortcut: no frame size cap, a hostile peer can exhaust memory; add a cap before proxying remote upstreams.
-		line, err := r.br.ReadBytes('\n')
-		if line = bytes.TrimSpace(line); len(line) > 0 {
-			return parse(line)
+	for r.err == nil {
+		line, err := ReadLine(r.br)
+		if err == ErrFrameTooLarge {
+			r.err = err
+			break
 		}
-		if err != nil {
-			return nil, err
+		if line = bytes.TrimSpace(line); len(line) > 0 {
+			return Parse(line)
+		}
+		r.err = err
+	}
+	return nil, r.err
+}
+
+// ReadLine is br.ReadBytes('\n') bounded by MaxFrame.
+func ReadLine(br *bufio.Reader) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		line = append(line, chunk...)
+		if len(line) > MaxFrame {
+			return nil, ErrFrameTooLarge
+		}
+		if err != bufio.ErrBufferFull {
+			return line, err
 		}
 	}
 }
 
 // shortcut: JSON-RPC batches (arrays) are rejected; MCP dropped them in 2025-06-18. Add if an old server needs them.
-func parse(line []byte) (*Message, error) {
+// Parse decodes one frame. A bad frame is a *ParseError.
+func Parse(line []byte) (*Message, error) {
+	line = bytes.TrimSpace(line)
 	var m Message
 	if err := json.Unmarshal(line, &m); err != nil {
 		return nil, &ParseError{Line: line, Err: err}
