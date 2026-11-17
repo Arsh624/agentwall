@@ -18,7 +18,9 @@ Continue from **Next task**. Update this file and commit after every task.
   Both logged session `ppid-33056`; read_file tainted private, the first fetch passed and tainted untrusted, the
   second fetch was denied (lethal trifecta), `verify` OK. Not checked: macOS/Linux agents, other agents, `ask` in a TUI.
   Note: read_file taints even when the read fails (ENOENT); that is conservative, left as is.
-- NEEDS THE USER: a 30-second demo GIF at `docs/demo.gif` (the README has a placeholder).
+- Demo GIF DONE: `docs/demo.gif` (21 s, 69 KB) is rendered by `scripts/demo/make_gif.py` from real output of a
+  second real Claude Code run (read succeeded this time, session `ppid-34812`) and `agentwall attack`. It replaced
+  the `docs/demo.svg` placeholder. Nothing needs the user now.
 - Hardening in v0.1.1 (PR #27): secrets redacted in base64/percent-encoded form and in object keys;
   server notifications and requests redacted, sampling refused (#16); cancelled requests forgotten (#15); tools/call
   params re-encoded before upstream (#13); Windows session id looks past cmd/PowerShell parents (#18). #17 closed

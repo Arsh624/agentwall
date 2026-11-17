@@ -20,7 +20,9 @@ It is for people who run AI agents with MCP servers on their own computer, and w
 
 ## Demo
 
-![agentwall attack suite: 5 of 5 attacks blocked, 0 false positives, and the GitHub heist call being refused](docs/demo.svg)
+![A Claude Code session reads a private file and fetches a web page; agentwall blocks the second fetch as a lethal trifecta, then the attack suite blocks 5 of 5 attacks with 0 false positives](docs/demo.gif)
+
+This is real output, replayed: one Claude Code session (Haiku, Windows) with the filesystem and fetch servers, each behind `agentwall wrap`, then `agentwall attack`. The prompt and long lines are shortened. `scripts/demo/make_gif.py` renders it.
 
 Text version of the demo, a copy of the GitHub heist scenario in `attacks/github-heist.json`:
 
