@@ -50,13 +50,18 @@ type Policy struct {
 	onFingerprint Action
 	servers       map[string]map[string]*tool
 	env           map[string]map[string]string // server → env var → vault secret name
+	headers       map[string]map[string]string // server → HTTP header → vault secret name
 }
 
 // Env returns the secrets a server's process needs: environment variable → vault secret name.
 func (p *Policy) Env(server string) map[string]string { return p.env[server] }
 
+// Headers returns the secrets sent to an HTTP server: header name → vault secret name.
+func (p *Policy) Headers(server string) map[string]string { return p.headers[server] }
+
 var (
 	envNameRE  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	headerRE   = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
 	vaultRefRE = regexp.MustCompile(`^vault:([A-Za-z0-9_.-]+)$`)
 )
 
@@ -76,7 +81,8 @@ type rawPolicy struct {
 			Action   string            `yaml:"action"`
 			DenyArgs map[string]string `yaml:"deny_args"`
 		} `yaml:"tools"`
-		Env map[string]string `yaml:"env"`
+		Env     map[string]string `yaml:"env"`
+		Headers map[string]string `yaml:"headers"`
 	} `yaml:"servers"`
 }
 
@@ -120,7 +126,8 @@ func Parse(data []byte) (*Policy, error) {
 	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
-	p := &Policy{def: Allow, onTrifecta: Deny, onFingerprint: Deny, servers: map[string]map[string]*tool{}, env: map[string]map[string]string{}}
+	p := &Policy{def: Allow, onTrifecta: Deny, onFingerprint: Deny, servers: map[string]map[string]*tool{},
+		env: map[string]map[string]string{}, headers: map[string]map[string]string{}}
 	for key, f := range map[string]struct {
 		raw string
 		dst *Action
@@ -142,16 +149,12 @@ func Parse(data []byte) (*Policy, error) {
 	}
 	for sn, s := range raw.Servers {
 		p.servers[sn] = map[string]*tool{}
-		for name, ref := range s.Env {
-			m := vaultRefRE.FindStringSubmatch(ref)
-			if !envNameRE.MatchString(name) || m == nil {
-				// never echo ref: it may be a literal secret someone pasted
-				return nil, fmt.Errorf("policy: %s: env %q must be a variable name mapped to \"vault:<secret name>\"", sn, name)
-			}
-			if p.env[sn] == nil {
-				p.env[sn] = map[string]string{}
-			}
-			p.env[sn][name] = m[1]
+		var err error
+		if p.env[sn], err = vaultRefs(s.Env, envNameRE); err != nil {
+			return nil, fmt.Errorf("policy: %s: env %w", sn, err)
+		}
+		if p.headers[sn], err = vaultRefs(s.Headers, headerRE); err != nil {
+			return nil, fmt.Errorf("policy: %s: header %w", sn, err)
 		}
 		for tn, rt := range s.Tools {
 			t := &tool{tags: rt.Tags}
@@ -186,6 +189,20 @@ func Parse(data []byte) (*Policy, error) {
 		}
 	}
 	return p, nil
+}
+
+// vaultRefs checks a name → "vault:<secret>" map and returns name → secret.
+func vaultRefs(raw map[string]string, nameRE *regexp.Regexp) (map[string]string, error) {
+	refs := map[string]string{}
+	for name, ref := range raw {
+		m := vaultRefRE.FindStringSubmatch(ref)
+		if !nameRE.MatchString(name) || m == nil {
+			// never echo ref: it may be a literal secret someone pasted
+			return nil, fmt.Errorf("%q must be a plain name mapped to \"vault:<secret name>\"", name)
+		}
+		refs[name] = m[1]
+	}
+	return refs, nil
 }
 
 func (p *Policy) lookup(server, name string) *tool {
