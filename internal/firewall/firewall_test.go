@@ -7,8 +7,10 @@ import (
 	"testing"
 
 	"github.com/agentwall/agentwall/internal/audit"
+	"github.com/agentwall/agentwall/internal/flow"
 	"github.com/agentwall/agentwall/internal/jsonrpc"
 	"github.com/agentwall/agentwall/internal/policy"
+	"github.com/agentwall/agentwall/internal/session"
 )
 
 const testPolicy = `
@@ -27,13 +29,27 @@ func newFirewall(t *testing.T) (*Firewall, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(t.TempDir(), "audit.jsonl")
-	log, err := audit.Open(path)
+	dir := t.TempDir()
+	return open(t, dir, "srv", "s1", p), filepath.Join(dir, "audit.jsonl")
+}
+
+// open builds a firewall the way one agentwall process does: its own handles on the shared state dir.
+func open(t *testing.T, stateDir, server, sessionID string, p *policy.Policy) *Firewall {
+	t.Helper()
+	log, err := audit.Open(filepath.Join(stateDir, "audit.jsonl"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { log.Close() })
-	return &Firewall{Server: "srv", Session: "s1", Policy: p, Audit: log}, path
+	sess, err := session.Open(stateDir, sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	prints, err := flow.OpenStore(filepath.Join(stateDir, "fingerprints"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { log.Close(); prints.Close() })
+	return &Firewall{Server: server, Session: sess, Policy: p, Audit: log, Prints: prints}
 }
 
 func toolCall(name, args string) *jsonrpc.Message {
