@@ -5,11 +5,14 @@ Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
 - Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
-- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20), M6 (#21). CI green on ubuntu/windows/macos (+ race detector on Linux).
-- Current milestone: M7 code complete on `m7-attack-suite`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
-- Next task: M8 — real-world integration `[FABLE]`, branch `m8-real-world`, issue #8: `agentwall init`, a hand test
-  with a real MCP server through Claude Code (check issue #18: is the parent pid shared by all servers?), basic
-  Streamable HTTP mode (`agentwall proxy --upstream URL`) reusing the same hooks (add the frame cap, issue #14).
+- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20), M6 (#21), M7 (#22). CI green on ubuntu/windows/macos (+ race detector on Linux).
+- Current milestone: M8 code complete on `m8-real-world`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
+- Next task: M9 — ship `[HAIKU]`, branch `m9-ship`, issue #9: goreleaser config + release workflow, `install.sh`,
+  full README (pitch, demo GIF placeholder, quickstart, threat model, attack table, benchmark table, honest comparison),
+  `docs/ARCHITECTURE.md`. Facts for the README are in this file, `docs/BENCHMARKS.md` and `agentwall attack`.
+  Tagging `v0.1.0` publishes a release: ask the user before pushing the tag.
+- NEEDS THE USER: one real Claude Code session through agentwall (the `claude` CLI on this machine is not logged in).
+  Steps are in "Known issues" below (issue #18).
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
   #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
 - Model that last worked: Fable 5.2
@@ -103,6 +106,22 @@ Continue from **Next task**. Update this file and commit after every task.
     p50/p99), hidden `agentwall mock-server <scenario.json>`, `docs/BENCHMARKS.md` with the measured numbers:
     added p99 about 0.2 ms at 1 KB and 0.5 ms at 10 KB (target < 2 ms).
   - Redaction regexps now run only on strings containing a token hint (Fable): halved the per-call cost.
+- M8 — real-world integration (branch `m8-real-world`, all Fable):
+  - Ran the official `@modelcontextprotocol/server-filesystem` (v2.3.0, via `npx`) behind `agentwall wrap` with a
+    scripted client: initialize, tools/list (16 tools pinned), list/read/write calls, token formats in a file redacted
+    (also inside `structuredContent`), private taint set, audit verified, clean exit. Added latency per call was not
+    visible next to the server's own.
+  - Gap found and fixed: the default policy missed `list_directory_with_sizes` and all the tool names of the current
+    `github/github-mcp-server` (`issue_read`, `pull_request_read`, `issue_write`, ...). Untagged tools get no flow control.
+  - `agentwall init`: writes `<state>/policy.yaml` once (never overwrites), finds `.mcp.json`, `.cursor/mcp.json`,
+    `~/.claude.json`, `~/.cursor/mcp.json` and prints the wrapped version of each server. It never edits those files
+    and never prints env values.
+  - Frame cap: one JSON-RPC frame is at most 64 MiB (`jsonrpc.MaxFrame`), closes #14.
+  - HTTP mode: `proxy.HTTPHandler` + `agentwall proxy --upstream URL [--listen 127.0.0.1:7878] [--server] [--policy]`.
+    Same hooks as stdio; JSON and SSE replies go through `OnResponse`; policy `servers.<name>.headers: {Authorization:
+    "vault:x"}` puts the credential on upstream requests only; requests with an `Origin` header are refused.
+  - Verified: heist blocked over HTTP through the CLI against a test MCP-over-HTTP server that only accepts the vault
+    credential. NOT verified: a real remote HTTP MCP server, and a logged-in Claude Code session.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.
@@ -151,6 +170,12 @@ Continue from **Next task**. Update this file and commit after every task.
 - `secret list` was added (names only) because a keychain cannot be listed by hand; there is no `secret get` on
   purpose (nothing should print a secret).
 - Vault values shorter than 8 characters are stored but not redacted (they would blank ordinary text).
+- HTTP mode refuses any request that carries an `Origin` header: browsers send it, MCP clients do not, and the proxy
+  adds credentials, so a web page must not be able to use the local port. It listens on loopback by default and warns
+  when told to listen elsewhere.
+- HTTP mode uses one session per proxy process (not per `Mcp-Session-Id`), and server notifications on a stream pass
+  through unhooked (issue #16). JSON-RPC batches are refused in both transports.
+- `init` only prints what to change; editing a user's agent config is theirs to do.
 
 ## Known issues / notes for next session
 - Follow-up issues to open once gh works:
@@ -177,3 +202,9 @@ Continue from **Next task**. Update this file and commit after every task.
 - Server notifications (e.g. `notifications/message` logs) are not redacted: only answers to agent requests go through the hooks (issue #16).
 - The vault tests and the M5 CLI wiring were written together with the code, not seen failing first (the redactor, policy env, firewall and CLI tests were).
 - `detect` speed (83 µs per 10 KB) comes from keyword hits + short anchored regexps. Known gaps versus the plain whole-text version: matches longer than 160 bytes, non-ASCII look-alike letters, and a rare false `addressed` hit on very long lines. Two corpus false positives are accepted (a security blog quoting an attack, curl upload docs): they only taint.
+- TO VERIFY WITH A REAL AGENT (issue #18): in a project, create `.mcp.json` with two servers started through
+  `agentwall wrap` (e.g. the filesystem server and `uvx mcp-server-fetch`), use both in one Claude Code session, then run
+  `agentwall log`: every entry of that session must show the same session id. If the ids differ, set
+  `AGENTWALL_SESSION` in each server's `env` in `.mcp.json`. Evidence so far: the not-logged-in CLI created one
+  session directory for the servers it started.
+- `ask` prompting on the terminal is still untested with a real agent UI.
