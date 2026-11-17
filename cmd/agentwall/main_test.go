@@ -38,6 +38,13 @@ func TestStubCommandsRegistered(t *testing.T) {
 	}
 }
 
+func TestMockServerCommand(t *testing.T) {
+	out, err := run(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n", "mock-server", "../../testdata/basic.json")
+	if err != nil || !strings.Contains(out, "read_file") {
+		t.Fatalf("mock-server: %q, %v", out, err)
+	}
+}
+
 func TestAttackSuitePasses(t *testing.T) {
 	out, err := run(t, "", "attack")
 	if err != nil {

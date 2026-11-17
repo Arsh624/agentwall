@@ -19,6 +19,7 @@ import (
 	"github.com/Arsh624/agentwall/internal/attack"
 	"github.com/Arsh624/agentwall/internal/audit"
 	"github.com/Arsh624/agentwall/internal/firewall"
+	"github.com/Arsh624/agentwall/internal/mockserver"
 	"github.com/Arsh624/agentwall/internal/pin"
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/proxy"
@@ -132,6 +133,19 @@ func newRootCmd() *cobra.Command {
 			RunE:  runAttack,
 		},
 		logCmd,
+		&cobra.Command{
+			Use:    "mock-server <scenario.json>",
+			Short:  "Run a scripted mock MCP server on stdio (for benchmarks)",
+			Hidden: true,
+			Args:   cobra.ExactArgs(1),
+			RunE: func(cmd *cobra.Command, args []string) error {
+				sc, err := mockserver.Load(args[0])
+				if err != nil {
+					return err
+				}
+				return mockserver.Serve(cmd.InOrStdin(), cmd.OutOrStdout(), sc)
+			},
+		},
 	)
 	return root
 }
