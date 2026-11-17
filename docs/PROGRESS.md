@@ -6,14 +6,15 @@ Continue from **Next task**. Update this file and commit after every task.
 ## Status
 - Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
 - Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20), M6 (#21), M7 (#22), M8 (#23). CI green on ubuntu/windows/macos (+ race detector on Linux).
-- Current milestone: M9 code complete on `m9-ship`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
-- Next task (after M9 is merged): ASK THE USER, then `git tag v0.1.0 && git push origin v0.1.0`. The tag triggers
-  `.github/workflows/release.yml` (GoReleaser), which publishes public binaries. After the release exists: run
-  `install.sh` once on Linux or macOS, and change the README line "No release has been published yet".
-- NEEDS THE USER: (1) the go-ahead for the `v0.1.0` tag; (2) one real Claude Code session through agentwall (the
-  `claude` CLI on this machine is not logged in) — steps in "Known issues" below (issue #18); (3) a 30-second demo
-  GIF at `docs/demo.gif` (the README has a placeholder).
-- After that: the stretch list in PLAN.md, and the open follow-up issues.
+- Released: `v0.1.0` is published (https://github.com/Arsh624/agentwall/releases/tag/v0.1.0): 6 binaries
+  (linux/darwin/windows x amd64/arm64) + `checksums.txt`, built by `.github/workflows/release.yml` (tests and the attack
+  suite ran first). `install.sh` was run once on Ubuntu (WSL): it installed `agentwall 0.1.0`, which passed the attack
+  suite. NOT run by hand: the macOS and Windows binaries, the checksum-mismatch path of `install.sh`.
+- All nine milestones are merged. Nothing is in progress.
+- NEEDS THE USER: (1) one real Claude Code session through agentwall (the `claude` CLI on this machine is not logged
+  in) - steps in "Known issues" below (issue #18); (2) a 30-second demo GIF at `docs/demo.gif` (the README has a
+  placeholder).
+- Next: the open follow-up issues (#13, #15, #16, #17, #18), then the stretch list in PLAN.md.
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
   #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
 - Model that last worked: Fable 5.2
