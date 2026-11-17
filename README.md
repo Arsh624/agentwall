@@ -233,7 +233,7 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 - The audit hash chain is not keyed. It detects edits, deletions and reordering inside a chain. It does not detect removal of the newest entries, or a forged whole chain.
 - Server notifications and requests (logs, progress, elicitation, roots) are redacted but not tainted. Sampling requests are refused. Over HTTP a refused request gets no answer, so the server waits for one.
 - A tool that the policy does not tag gets no flow control.
-- Taint is shared between the MCP servers of one agent by the agent's process id (on Windows, agentwall looks past `cmd /c` and PowerShell wrappers). This has not yet been confirmed with a logged-in Claude Code session. If the servers still get different ids, set the same `AGENTWALL_SESSION` in each server's `env`.
+- Taint is shared between the MCP servers of one agent by the agent's process id (on Windows, agentwall looks past `cmd /c` and PowerShell wrappers). This was checked with a real Claude Code session on Windows (2.1.177, filesystem and fetch servers): both servers shared one session, and the second fetch was blocked as a lethal trifecta. If your servers still get different ids, set the same `AGENTWALL_SESSION` in each server's `env`.
 - The injection heuristics are pattern matching. They can be evaded.
 - The fingerprint rule blocks writing an edited private file back through an egress tool (for example, reading a file and then committing it with `create_or_update_file`). Set `on_fingerprint: ask` to be asked instead, or remove the `egress_sink` tag from that tool. This is on purpose: the firewall cannot tell your own repository from someone else's.
 - Anyone with access to your user account can read `~/.agentwall`.

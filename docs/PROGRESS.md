@@ -13,9 +13,12 @@ Continue from **Next task**. Update this file and commit after every task.
   suite ran first). `install.sh` was run once on Ubuntu (WSL): it installed `agentwall 0.1.0`, which passed the attack
   suite. NOT run by hand: the macOS and Windows binaries, the checksum-mismatch path of `install.sh`.
 - All nine milestones are merged. Nothing is in progress.
-- NEEDS THE USER: (1) one real Claude Code session through agentwall (the `claude` CLI on this machine is not logged
-  in) - steps in "Known issues" below (issue #18); (2) a 30-second demo GIF at `docs/demo.gif` (the README has a
-  placeholder).
+- Real agent check DONE (2026-11-17): `claude -p` 2.1.177 (Haiku) on Windows, servers `filesystem`
+  (npx server-filesystem) and `fetch` (uvx mcp-server-fetch), each through `agentwall wrap` with `--mcp-config`.
+  Both logged session `ppid-33056`; read_file tainted private, the first fetch passed and tainted untrusted, the
+  second fetch was denied (lethal trifecta), `verify` OK. Not checked: macOS/Linux agents, other agents, `ask` in a TUI.
+  Note: read_file taints even when the read fails (ENOENT); that is conservative, left as is.
+- NEEDS THE USER: a 30-second demo GIF at `docs/demo.gif` (the README has a placeholder).
 - Hardening in v0.1.1 (PR #27): secrets redacted in base64/percent-encoded form and in object keys;
   server notifications and requests redacted, sampling refused (#16); cancelled requests forgotten (#15); tools/call
   params re-encoded before upstream (#13); Windows session id looks past cmd/PowerShell parents (#18). #17 closed
@@ -214,9 +217,4 @@ Continue from **Next task**. Update this file and commit after every task.
 - `secret set` echoes the value when typed at a terminal (hiding it needs x/term, not an allowed dependency). Pipe it in.
 - The vault tests and the M5 CLI wiring were written together with the code, not seen failing first (the redactor, policy env, firewall and CLI tests were).
 - `detect` speed (83 µs per 10 KB) comes from keyword hits + short anchored regexps. Known gaps versus the plain whole-text version: matches longer than 160 bytes, non-ASCII look-alike letters, and a rare false `addressed` hit on very long lines. Two corpus false positives are accepted (a security blog quoting an attack, curl upload docs): they only taint.
-- TO VERIFY WITH A REAL AGENT: in a project, create `.mcp.json` with two servers started through
-  `agentwall wrap` (e.g. the filesystem server and `uvx mcp-server-fetch`), use both in one Claude Code session, then run
-  `agentwall log`: every entry of that session must show the same session id. If the ids differ, set
-  `AGENTWALL_SESSION` in each server's `env` in `.mcp.json`. Evidence so far: the not-logged-in CLI created one
-  session directory for the servers it started.
 - `ask` prompting on the terminal is still untested with a real agent UI.
