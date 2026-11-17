@@ -9,6 +9,7 @@ import (
 	"github.com/Arsh624/agentwall/internal/audit"
 	"github.com/Arsh624/agentwall/internal/flow"
 	"github.com/Arsh624/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/pin"
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/session"
 )
@@ -49,7 +50,7 @@ func open(t *testing.T, stateDir, server, sessionID string, p *policy.Policy) *F
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { log.Close(); prints.Close() })
-	return &Firewall{Server: server, Session: sess, Policy: p, Audit: log, Prints: prints}
+	return &Firewall{Server: server, Session: sess, Policy: p, Audit: log, Prints: prints, Pins: pin.Open(filepath.Join(stateDir, "pins"))}
 }
 
 func toolCall(name, args string) *jsonrpc.Message {

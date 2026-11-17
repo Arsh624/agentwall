@@ -1,4 +1,4 @@
-// Package firewall turns policy, audit, taint and fingerprints (later pin,
+// Package firewall turns policy, audit, taint, fingerprints and pins (later
 // vault and detect) into the proxy's hooks. One Firewall guards one upstream server.
 package firewall
 
@@ -11,10 +11,12 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/Arsh624/agentwall/internal/audit"
 	"github.com/Arsh624/agentwall/internal/flow"
 	"github.com/Arsh624/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/pin"
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/proxy"
 	"github.com/Arsh624/agentwall/internal/session"
@@ -26,7 +28,11 @@ type Firewall struct {
 	Policy  *policy.Policy
 	Audit   *audit.Log
 	Prints  *flow.Store                // fingerprints of private text, shared across sessions
+	Pins    *pin.Store                 // hashes of the tool definitions the user has accepted
 	Ask     func(question string) bool // nil: every "ask" is denied
+
+	mu     sync.Mutex
+	hidden map[string]bool // tools whose definition changed since it was pinned
 }
 
 func (f *Firewall) Hooks() proxy.Hooks {
@@ -48,6 +54,13 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 	}
 
 	d := f.Policy.Decide(f.Server, call.Name, call.Arguments)
+	f.mu.Lock()
+	changed := f.hidden[call.Name]
+	f.mu.Unlock()
+	if changed {
+		d = policy.Decision{Action: policy.Deny, Reason: fmt.Sprintf("the definition of this tool changed after it was pinned; "+
+			"if the change is expected, run: agentwall approve %s/%s", f.Server, call.Name)}
+	}
 	if d.Action != policy.Deny && slices.Contains(f.Policy.Tags(f.Server, call.Name), policy.TagEgress) {
 		if fd := f.flowRules(call.Arguments); fd.Action != policy.Allow {
 			d = fd
@@ -93,6 +106,9 @@ func (f *Firewall) flowRules(args json.RawMessage) policy.Decision {
 
 // onResponse records what the agent is about to learn, before it learns it.
 func (f *Firewall) onResponse(req, resp *jsonrpc.Message) *jsonrpc.Message {
+	if req.Method == "tools/list" {
+		return f.pinTools(resp)
+	}
 	if req.Method != "tools/call" {
 		return resp
 	}
@@ -115,6 +131,49 @@ func (f *Firewall) onResponse(req, resp *jsonrpc.Message) *jsonrpc.Message {
 		log.Printf("agentwall: recording taint: %v", err)
 		return jsonrpc.ErrorResponse(resp.ID, proxy.CodeBlocked, "agentwall withheld this result: its taint could not be recorded")
 	}
+	return resp
+}
+
+// pinTools drops tools whose definition changed since first use (a rug pull) from a tools/list result.
+func (f *Firewall) pinTools(resp *jsonrpc.Message) *jsonrpc.Message {
+	if resp.Error != nil {
+		return resp
+	}
+	var result map[string]json.RawMessage
+	var tools []json.RawMessage
+	err := json.Unmarshal(resp.Result, &result)
+	if err == nil {
+		err = json.Unmarshal(result["tools"], &tools)
+	}
+	var status []pin.Status
+	if err == nil {
+		status, err = f.Pins.Check(f.Server, tools)
+	}
+	if err != nil { // an unchecked tool list must not reach the agent
+		log.Printf("agentwall: checking tool pins: %v", err)
+		return jsonrpc.ErrorResponse(resp.ID, proxy.CodeBlocked, "agentwall withheld the tool list: it could not be checked against the pinned tools")
+	}
+
+	kept := []json.RawMessage{}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.hidden == nil {
+		f.hidden = map[string]bool{}
+	}
+	for i, tool := range tools {
+		var t struct{ Name string }
+		json.Unmarshal(tool, &t) // Check already required a name
+		f.hidden[t.Name] = status[i] == pin.Changed
+		if status[i] != pin.Changed {
+			kept = append(kept, tool)
+			continue
+		}
+		log.Printf("agentwall: tool %s/%s changed since it was pinned and is hidden; to accept it run: agentwall approve %s/%s",
+			f.Server, t.Name, f.Server, t.Name)
+		f.audit(t.Name, tool, "pin", "tool definition changed since it was pinned; hidden until approved")
+	}
+	result["tools"], _ = json.Marshal(kept)
+	resp.Result, _ = json.Marshal(result)
 	return resp
 }
 
