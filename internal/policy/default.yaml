@@ -1,0 +1,53 @@
+default_action: allow
+servers:
+  # Issues and PRs are written by strangers (untrusted); repo reads may hit private data; writes are visible to others.
+  github:
+    tools:
+      get_issue: {tags: [untrusted_source]}
+      list_issues: {tags: [untrusted_source]}
+      search_issues: {tags: [untrusted_source]}
+      get_issue_comments: {tags: [untrusted_source]}
+      get_pull_request: {tags: [untrusted_source]}
+      list_pull_requests: {tags: [untrusted_source]}
+      get_pull_request_comments: {tags: [untrusted_source]}
+      get_pull_request_reviews: {tags: [untrusted_source]}
+      get_file_contents: {tags: [private_source]}
+      search_code: {tags: [private_source]}
+      list_commits: {tags: [private_source]}
+      get_commit: {tags: [private_source]}
+      create_pull_request: {tags: [egress_sink]}
+      create_issue: {tags: [egress_sink]}
+      add_issue_comment: {tags: [egress_sink]}
+      update_issue: {tags: [egress_sink]}
+      create_or_update_file: {tags: [egress_sink]}
+      push_files: {tags: [egress_sink]}
+      create_repository: {tags: [egress_sink]}
+      fork_repository: {tags: [egress_sink]}
+      create_branch: {tags: [egress_sink]}
+      create_gist: {tags: [egress_sink]}
+  # Local files can hold private data; nothing here sends data out.
+  filesystem:
+    tools:
+      read_file: {tags: [private_source]}
+      read_text_file: {tags: [private_source]}
+      read_media_file: {tags: [private_source]}
+      read_multiple_files: {tags: [private_source]}
+      search_files: {tags: [private_source]}
+      list_directory: {tags: [private_source]}
+      directory_tree: {tags: [private_source]}
+      get_file_info: {tags: [private_source]}
+  # Web content is untrusted, and a URL can carry data out.
+  fetch:
+    tools:
+      fetch: {tags: [untrusted_source, egress_sink]}
+  # Workspace reads may expose private conversations; posting reaches other people.
+  slack:
+    tools:
+      slack_get_channel_history: {tags: [private_source]}
+      slack_get_thread_replies: {tags: [private_source]}
+      slack_get_users: {tags: [private_source]}
+      slack_get_user_profile: {tags: [private_source]}
+      slack_list_channels: {tags: [private_source]}
+      slack_post_message: {tags: [egress_sink]}
+      slack_reply_to_thread: {tags: [egress_sink]}
+      slack_add_reaction: {tags: [egress_sink]}

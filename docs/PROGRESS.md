@@ -4,9 +4,9 @@ Any model picking this up: read this file, then `docs/PLAN.md`, then `git log --
 Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
-- Current milestone: M2 (M1 code complete on branch `m1-jsonrpc-proxy`, PR not opened yet — see blockers)
-- Next task: M2 — `internal/policy` and `internal/audit` (Sonnet subagents), then `internal/firewall` glue + CLI
-- Branches: `main` = M0. `m1-jsonrpc-proxy` = M1. `m2-policy-audit` is stacked on top of M1.
+- Current milestone: M3 (M1 and M2 are code complete on their branches, PRs not opened yet — see blockers)
+- Next task: M3 — `internal/session` shared taint + trifecta rule in `internal/firewall` (tests first), on branch `m3-flow-control`
+- Branches: `main` = M0. `m1-jsonrpc-proxy` = M1. `m2-policy-audit` = M2, stacked on M1. `m3-flow-control` is stacked on M2.
 - Model that last worked: Fable 5.2
 
 ## Blockers (need the user)
@@ -17,7 +17,8 @@ Continue from **Next task**. Update this file and commit after every task.
      (go.mod + every import; one `fix:`/`chore:` commit on the newest branch).
   2. `gh repo create agentwall --public --source . --push` (pushes `main`), `gh label create milestone`.
   3. Issues `M1: …` to `M9: …` with the PLAN task lists as checkboxes, label `milestone`.
-  4. Push `m1-jsonrpc-proxy`, PR with `Closes #<M1 issue>`, wait for CI, `gh pr merge --merge`. Then the same for M2, etc.
+  4. Push `m1-jsonrpc-proxy`, PR with `Closes #<M1 issue>`, wait for CI, `gh pr merge --merge`. Then `m2-policy-audit` the same way
+     (branches are stacked, so merge in order), then each later branch.
   5. Open the follow-up issues listed under "Known issues" below.
 
 ## Workflow (from M1 on)
@@ -39,6 +40,17 @@ Continue from **Next task**. Update this file and commit after every task.
   - `agentwall wrap -- <cmd>` works, transparent (no hooks yet).
   - Tests: unit + real-subprocess integration (round trip, 5 MB payload, 200 concurrent ids). All pass on Windows.
     CI (ubuntu/windows/macos, plus `-race` on Linux) has NOT run yet — nothing is pushed.
+- M2 — policy + audit (branch `m2-policy-audit`):
+  - `internal/policy` (Sonnet): `Parse`/`Load`/`Default`, `Decide(server, tool, args)`, `Tags(server, tool)`; strict YAML
+    (unknown keys are errors); `"*"` wildcard tool entry; `deny_args` regex per top-level argument; embedded `default.yaml`
+    with tags for github, filesystem, fetch, slack.
+  - `internal/audit` (Sonnet): `Open`/`Append`/`Read`/`Verify`, per-process chains in one shared JSONL file.
+  - `internal/firewall` (Fable): `Firewall.Hooks()` — the one place where policy, audit and later flow/pin/vault/detect
+    plug into the proxy. Only `tools/call` is decided and audited. `ask` prompts on the controlling terminal
+    (`/dev/tty` or `CONIN$`), no terminal → deny. A call that cannot be audited is denied.
+  - CLI: `wrap` loads policy (`--policy`, else `<state>/policy.yaml`, else built-in), `--server`; `verify`; `log [--tail]`.
+  - Verified: all package tests + CLI end-to-end test (blocked call returns `-32001` with reason, both calls logged,
+    tampered log fails `verify`); real binary smoke run.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.
@@ -77,3 +89,8 @@ Continue from **Next task**. Update this file and commit after every task.
   - `proxy.Run` pending map never expires requests that upstream never answers (cancelled calls).
   - Server-initiated requests (sampling, elicitation, roots) and the agent's replies pass through unfiltered.
 - Race detector cannot run locally (no cgo on this Windows box); it runs in CI on Linux.
+- Audit hash chains are unkeyed: they catch edits, deletions and reordering inside a chain, but not removal of
+  the newest entries, nor a forged whole chain. Say so in the threat model (M9).
+- `ask` prompting on the terminal while Claude Code's TUI owns it is untested — check by hand in M8.
+- The firewall tests were written together with the code while the policy/audit subagents were still running,
+  so they were never seen failing first.
