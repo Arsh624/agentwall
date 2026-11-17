@@ -1,5 +1,5 @@
-// Package firewall turns policy, audit, taint, fingerprints and pins (later
-// vault and detect) into the proxy's hooks. One Firewall guards one upstream server.
+// Package firewall turns policy, audit, taint, fingerprints, pins and redaction
+// (later detect) into the proxy's hooks. One Firewall guards one upstream server.
 package firewall
 
 import (
@@ -20,6 +20,7 @@ import (
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/proxy"
 	"github.com/Arsh624/agentwall/internal/session"
+	"github.com/Arsh624/agentwall/internal/vault"
 )
 
 type Firewall struct {
@@ -29,6 +30,7 @@ type Firewall struct {
 	Audit   *audit.Log
 	Prints  *flow.Store                // fingerprints of private text, shared across sessions
 	Pins    *pin.Store                 // hashes of the tool definitions the user has accepted
+	Redact  *vault.Redactor            // strips secrets from everything upstream answers
 	Ask     func(question string) bool // nil: every "ask" is denied
 
 	mu     sync.Mutex
@@ -106,6 +108,7 @@ func (f *Firewall) flowRules(args json.RawMessage) policy.Decision {
 
 // onResponse records what the agent is about to learn, before it learns it.
 func (f *Firewall) onResponse(req, resp *jsonrpc.Message) *jsonrpc.Message {
+	f.redact(req, resp)
 	if req.Method == "tools/list" {
 		return f.pinTools(resp)
 	}
@@ -132,6 +135,28 @@ func (f *Firewall) onResponse(req, resp *jsonrpc.Message) *jsonrpc.Message {
 		return jsonrpc.ErrorResponse(resp.ID, proxy.CodeBlocked, "agentwall withheld this result: its taint could not be recorded")
 	}
 	return resp
+}
+
+// redact strips secrets from any upstream answer, whatever the method.
+func (f *Firewall) redact(req, resp *jsonrpc.Message) {
+	var found []string
+	resp.Result, found = f.Redact.JSON(resp.Result)
+	if resp.Error != nil {
+		var inMsg, inData []string
+		resp.Error.Message, inMsg = f.Redact.Text(resp.Error.Message)
+		resp.Error.Data, inData = f.Redact.JSON(resp.Error.Data)
+		found = append(append(found, inMsg...), inData...)
+	}
+	if found == nil {
+		return
+	}
+	slices.Sort(found)
+	what := req.Method
+	var call callParams
+	if req.Method == "tools/call" && json.Unmarshal(req.Params, &call) == nil {
+		what = call.Name
+	}
+	f.audit(what, call.Arguments, "redact", "removed from the answer before the agent saw it: "+strings.Join(slices.Compact(found), ", "))
 }
 
 // pinTools drops tools whose definition changed since first use (a rug pull) from a tools/list result.

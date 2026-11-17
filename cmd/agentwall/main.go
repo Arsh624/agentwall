@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"os/signal"
@@ -19,6 +21,7 @@ import (
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/proxy"
 	"github.com/Arsh624/agentwall/internal/session"
+	"github.com/Arsh624/agentwall/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -55,11 +58,26 @@ func newRootCmd() *cobra.Command {
 		Use:   "secret",
 		Short: "Manage secrets in the vault",
 	}
-	secret.AddCommand(stub(&cobra.Command{
-		Use:   "set NAME",
-		Short: "Store a secret in the vault",
-		Args:  cobra.ExactArgs(1),
-	}))
+	secret.AddCommand(
+		&cobra.Command{
+			Use:   "set NAME",
+			Short: "Store a secret in the vault (the value is read from stdin)",
+			Args:  cobra.ExactArgs(1),
+			RunE:  runSecretSet,
+		},
+		&cobra.Command{
+			Use:   "list",
+			Short: "List the names of the stored secrets",
+			Args:  cobra.NoArgs,
+			RunE: func(cmd *cobra.Command, _ []string) error {
+				names, err := vault.Open(stateDir()).List()
+				for _, n := range names {
+					fmt.Fprintln(cmd.OutOrStdout(), n)
+				}
+				return err
+			},
+		},
+	)
 
 	approve := &cobra.Command{
 		Use:   "approve <server>/<tool>",
@@ -170,6 +188,46 @@ func sessionID() string {
 	return fmt.Sprintf("ppid-%d", os.Getppid())
 }
 
+func runSecretSet(cmd *cobra.Command, args []string) error {
+	// shortcut: the value echoes when typed at a terminal (hiding it needs x/term); pipe it in to avoid that.
+	if f, ok := cmd.InOrStdin().(*os.File); ok {
+		if fi, err := f.Stat(); err == nil && fi.Mode()&os.ModeCharDevice != 0 {
+			fmt.Fprintf(cmd.ErrOrStderr(), "Value for %s (input is visible): ", args[0])
+		}
+	}
+	line, err := bufio.NewReader(cmd.InOrStdin()).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return err
+	}
+	value := strings.TrimRight(line, "\r\n")
+	if err := vault.Open(stateDir()).Set(args[0], value); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "stored %s\n", args[0])
+	if len(value) < 8 {
+		fmt.Fprintln(cmd.ErrOrStderr(), "warning: values under 8 characters are not redacted from tool output")
+	}
+	return nil
+}
+
+// upstreamEnv is our environment plus the server's vault secrets, minus the vault passphrase.
+func upstreamEnv(refs, secrets map[string]string) ([]string, error) {
+	var env []string
+	for _, kv := range os.Environ() {
+		if !strings.HasPrefix(kv, vault.PassphraseEnv+"=") {
+			env = append(env, kv)
+		}
+	}
+	for name, secret := range refs {
+		value, ok := secrets[secret]
+		if !ok {
+			return nil, fmt.Errorf("secret %q is not in the vault; run: agentwall secret set %s", secret, secret)
+		}
+		env = append(env, name+"="+value)
+	}
+	return env, nil
+}
+
 func runWrap(cmd *cobra.Command, args []string) error {
 	policyFlag, _ := cmd.Flags().GetString("policy")
 	pol, err := loadPolicy(policyFlag)
@@ -179,6 +237,18 @@ func runWrap(cmd *cobra.Command, args []string) error {
 	server, _ := cmd.Flags().GetString("server")
 	if server == "" {
 		server = serverName(args)
+	}
+	secrets, err := vault.Open(stateDir()).All()
+	if err != nil {
+		if len(pol.Env(server)) > 0 {
+			return fmt.Errorf("opening the vault: %w", err)
+		}
+		// no keychain here and nothing to inject: go on with pattern-only redaction
+		fmt.Fprintf(cmd.ErrOrStderr(), "agentwall: vault unavailable, redacting known token formats only: %v\n", err)
+	}
+	env, err := upstreamEnv(pol.Env(server), secrets)
+	if err != nil {
+		return err
 	}
 	log, err := audit.Open(auditPath())
 	if err != nil {
@@ -195,8 +265,8 @@ func runWrap(cmd *cobra.Command, args []string) error {
 	}
 	defer prints.Close()
 	fw := &firewall.Firewall{Server: server, Session: sess, Policy: pol, Audit: log, Prints: prints,
-		Pins: pin.Open(pinsDir()), Ask: firewall.TerminalAsk}
-	return proxy.Wrap(cmd.Context(), args, nil, cmd.InOrStdin(), cmd.OutOrStdout(), fw.Hooks())
+		Pins: pin.Open(pinsDir()), Redact: vault.NewRedactor(secrets), Ask: firewall.TerminalAsk}
+	return proxy.Wrap(cmd.Context(), args, env, cmd.InOrStdin(), cmd.OutOrStdout(), fw.Hooks())
 }
 
 func runLog(cmd *cobra.Command, _ []string) error {

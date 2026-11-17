@@ -108,3 +108,19 @@ func TestToolsAfter(t *testing.T) {
 		t.Fatalf("want original then changed description twice, got %q", descs)
 	}
 }
+
+func TestPrintenvTool(t *testing.T) {
+	t.Setenv("MOCK_SECRET", "s3cr3t")
+	in := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"printenv","arguments":{"name":"MOCK_SECRET"}}}` + "\n" +
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"printenv","arguments":{"name":"MOCK_UNSET"}}}` + "\n"
+	var out bytes.Buffer
+	if err := Serve(strings.NewReader(in), &out, &Scenario{}); err != nil {
+		t.Fatal(err)
+	}
+	r := jsonrpc.NewReader(&out)
+	first, _ := r.Read()
+	second, _ := r.Read()
+	if text(t, first) != "s3cr3t" || text(t, second) != "" {
+		t.Fatalf("printenv returned %q and %q", text(t, first), text(t, second))
+	}
+}

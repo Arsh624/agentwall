@@ -31,7 +31,7 @@ func run(t *testing.T, stdin string, args ...string) (string, error) {
 }
 
 func TestStubCommandsRegistered(t *testing.T) {
-	for _, line := range []string{"init", "proxy", "secret set NAME", "attack"} {
+	for _, line := range []string{"init", "proxy", "attack"} {
 		if _, err := run(t, "", strings.Fields(line)...); err == nil || err.Error() != "not implemented" {
 			t.Fatalf("%q: error = %v, want %q", line, err, "not implemented")
 		}
@@ -249,5 +249,59 @@ func TestRugPullThenApprove(t *testing.T) {
 	}
 	if out := ask(list); !strings.Contains(out, `"name":"add"`) || !strings.Contains(out, "notes") {
 		t.Fatalf("the approved definition must be shown: %s", out)
+	}
+}
+
+func TestSecretIsInjectedUpstreamAndHiddenFromTheAgent(t *testing.T) {
+	const token, passphrase = "hunter2-very-secret-token", "correct-horse-battery"
+	home := t.TempDir()
+	t.Setenv("AGENTWALL_HOME", home)
+	t.Setenv("AGENTWALL_PASSPHRASE", passphrase) // encrypted-file vault: no OS keychain in tests
+	t.Setenv(mockserver.EnvScenario, "../../testdata/basic.json")
+	policyFile := filepath.Join(home, "p.yaml")
+	os.WriteFile(policyFile, []byte(`servers: {mock: {env: {GITHUB_TOKEN: "vault:github"}}}`), 0o600)
+	printenv := func(name string) string {
+		return `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"printenv","arguments":{"name":"` + name + `"}}}` + "\n"
+	}
+
+	// the secret is not stored yet: wrap must refuse to start and say how to fix it
+	if _, err := run(t, printenv("GITHUB_TOKEN"), "wrap", "--policy", policyFile, "--server", "mock", "--", os.Args[0]); err == nil ||
+		!strings.Contains(err.Error(), "agentwall secret set github") {
+		t.Fatalf("missing secret: %v", err)
+	}
+
+	if out, err := run(t, token+"\n", "secret", "set", "github"); err != nil || strings.Contains(out, token) {
+		t.Fatalf("secret set: %q, %v", out, err)
+	}
+	if out, err := run(t, "", "secret", "list"); err != nil || strings.TrimSpace(out) != "github" {
+		t.Fatalf("secret list: %q, %v", out, err)
+	}
+	if _, err := run(t, "\n", "secret", "set", "empty"); err == nil {
+		t.Fatal("an empty secret must be rejected")
+	}
+
+	// upstream got the token in its env (it printed it), the agent only sees the placeholder
+	out, err := run(t, printenv("GITHUB_TOKEN"), "wrap", "--policy", policyFile, "--server", "mock", "--", os.Args[0])
+	if err != nil || strings.Contains(out, token) || !strings.Contains(out, "[REDACTED:github]") {
+		t.Fatalf("token must reach upstream but not the agent: %q, %v", out, err)
+	}
+	// the vault passphrase is not handed to the server
+	out, err = run(t, printenv("AGENTWALL_PASSPHRASE"), "wrap", "--policy", policyFile, "--server", "mock", "--", os.Args[0])
+	if err != nil || strings.Contains(out, passphrase) {
+		t.Fatalf("passphrase leaked to upstream: %q, %v", out, err)
+	}
+	// a server without env in the policy does not get the token
+	out, err = run(t, printenv("GITHUB_TOKEN"), "wrap", "--policy", policyFile, "--server", "other", "--", os.Args[0])
+	if err != nil || strings.Contains(out, "REDACTED") || strings.Contains(out, token) {
+		t.Fatalf("token given to the wrong server: %q, %v", out, err)
+	}
+
+	if out, _ := run(t, "", "log"); !strings.Contains(out, "redact") || strings.Contains(out, token) {
+		t.Fatalf("redaction must be logged without the secret: %s", out)
+	}
+	for _, f := range []string{"p.yaml", "audit.jsonl", "vault.enc"} {
+		if b, _ := os.ReadFile(filepath.Join(home, f)); strings.Contains(string(b), token) {
+			t.Fatalf("%s contains the secret in clear text", f)
+		}
 	}
 }
