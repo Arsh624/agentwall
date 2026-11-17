@@ -5,14 +5,15 @@ Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
 - Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
-- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20), M6 (#21), M7 (#22). CI green on ubuntu/windows/macos (+ race detector on Linux).
-- Current milestone: M8 code complete on `m8-real-world`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
-- Next task: M9 — ship `[HAIKU]`, branch `m9-ship`, issue #9: goreleaser config + release workflow, `install.sh`,
-  full README (pitch, demo GIF placeholder, quickstart, threat model, attack table, benchmark table, honest comparison),
-  `docs/ARCHITECTURE.md`. Facts for the README are in this file, `docs/BENCHMARKS.md` and `agentwall attack`.
-  Tagging `v0.1.0` publishes a release: ask the user before pushing the tag.
-- NEEDS THE USER: one real Claude Code session through agentwall (the `claude` CLI on this machine is not logged in).
-  Steps are in "Known issues" below (issue #18).
+- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20), M6 (#21), M7 (#22), M8 (#23). CI green on ubuntu/windows/macos (+ race detector on Linux).
+- Current milestone: M9 code complete on `m9-ship`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
+- Next task (after M9 is merged): ASK THE USER, then `git tag v0.1.0 && git push origin v0.1.0`. The tag triggers
+  `.github/workflows/release.yml` (GoReleaser), which publishes public binaries. After the release exists: run
+  `install.sh` once on Linux or macOS, and change the README line "No release has been published yet".
+- NEEDS THE USER: (1) the go-ahead for the `v0.1.0` tag; (2) one real Claude Code session through agentwall (the
+  `claude` CLI on this machine is not logged in) — steps in "Known issues" below (issue #18); (3) a 30-second demo
+  GIF at `docs/demo.gif` (the README has a placeholder).
+- After that: the stretch list in PLAN.md, and the open follow-up issues.
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
   #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
 - Model that last worked: Fable 5.2
@@ -122,6 +123,14 @@ Continue from **Next task**. Update this file and commit after every task.
     "vault:x"}` puts the credential on upstream requests only; requests with an `Origin` header are refused.
   - Verified: heist blocked over HTTP through the CLI against a test MCP-over-HTTP server that only accepts the vault
     credential. NOT verified: a real remote HTTP MCP server, and a logged-in Claude Code session.
+- M9 — ship (branch `m9-ship`, Haiku subagents, reviewed by Fable):
+  - `agentwall --version` (set by `-ldflags "-X main.version=..."`), `.goreleaser.yaml` (linux/darwin/windows ×
+    amd64/arm64, checksums), `.github/workflows/release.yml` (on `v*` tags: tests, attack suite, GoReleaser),
+    `install.sh` (POSIX sh; verifies SHA-256 before installing into `~/.local/bin`; no sudo).
+  - `README.md` (pitch, demo placeholder, problem, features, install, quick start, policy, attack table, benchmark
+    table, threat model, comparison, commands, status) and `docs/ARCHITECTURE.md` (picture, shared state, decisions
+    with why and trade-off, concepts, limits).
+  - NOT verified: GoReleaser, the release workflow and `install.sh` cannot run until a tag exists.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.
@@ -176,6 +185,8 @@ Continue from **Next task**. Update this file and commit after every task.
 - HTTP mode uses one session per proxy process (not per `Mcp-Session-Id`), and server notifications on a stream pass
   through unhooked (issue #16). JSON-RPC batches are refused in both transports.
 - `init` only prints what to change; editing a user's agent config is theirs to do.
+- The README keeps the SPEC's pitch ("Your agent never sees a real secret") and lists the cases where that does not
+  hold under "What it does not stop". The comparison section only says what we know and tells the reader to check.
 
 ## Known issues / notes for next session
 - Follow-up issues to open once gh works:

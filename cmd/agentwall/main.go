@@ -30,6 +30,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// version is set by the release build with -ldflags "-X main.version=..."
+var version = "dev"
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
@@ -41,6 +44,7 @@ func main() {
 func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:          "agentwall",
+		Version:      version,
 		SilenceUsage: true,
 	}
 
