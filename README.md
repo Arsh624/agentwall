@@ -1,14 +1,26 @@
 # agentwall
 
+[![CI](https://github.com/Arsh624/agentwall/actions/workflows/ci.yml/badge.svg)](https://github.com/Arsh624/agentwall/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Arsh624/agentwall)](https://github.com/Arsh624/agentwall/releases)
+[![Go](https://img.shields.io/github/go-mod/go-version/Arsh624/agentwall)](go.mod)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 A local firewall for AI agents. Your agent never sees a real secret, and data it read from strangers can't leak your private data.
 
 agentwall sits between an AI agent (Claude Code, Cursor) and the MCP servers it uses. MCP (Model Context Protocol) is the way agents call tools such as "read a file" or "open a pull request". agentwall runs on your machine as one binary, checks every tool call and every tool answer, and blocks the calls that would leak data.
 
 It is for people who run AI agents with MCP servers on their own computer, and who want the agent to read private data without that data being sent out by a prompt-injected tool call.
 
+**At a glance**
+
+- Blocks 5 of 5 scripted attacks in the bundled suite, with 0 false positives on 4 normal sessions. You can rerun it with `agentwall attack`.
+- Adds about 0.2 ms at p99 per tool call for 1 KB payloads (0.5 ms for 10 KB), well under the 2 ms target. See [Benchmarks](#benchmarks).
+- One Go binary for Linux, macOS and Windows. Works with stdio and HTTP MCP servers.
+- Covers the GitHub MCP "lethal trifecta" heist, secret exfiltration through fetch, tool rug pulls, zero-width injection and cross-session leaks of private text.
+
 ## Demo
 
-<!-- demo GIF goes here: docs/demo.gif (30 seconds: the GitHub heist being blocked) -->
+![agentwall attack suite: 5 of 5 attacks blocked, 0 false positives, and the GitHub heist call being refused](docs/demo.svg)
 
 Text version of the demo, a copy of the GitHub heist scenario in `attacks/github-heist.json`:
 
@@ -23,6 +35,17 @@ agentwall blocked this call: lethal trifecta: this session has read untrusted co
 ## The problem
 
 An agent that can read private data, read untrusted content, and send data out has what is called the lethal trifecta (a term from Simon Willison). Each part is normal. Together they let anyone who can write text the agent reads steer the agent into leaking your data. The real-world case named in the project spec is the GitHub MCP data heist (2025): one poisoned GitHub issue made an agent copy a private repository into a public pull request. The third part, a tool that sends data out, is what turns it into a leak. agentwall tracks what the agent has read in each session and blocks the third part when the first two are both present.
+
+```mermaid
+flowchart LR
+    A[AI agent<br/>Claude Code, Cursor] -->|tool call| W{agentwall}
+    W -->|allowed| S[MCP servers<br/>GitHub, filesystem, fetch]
+    S -->|tool output| W
+    W -->|redacted output| A
+    W -. session taint, fingerprints, pins .-> T[(~/.agentwall state)]
+    W -. every decision .-> L[(hash-chained audit log)]
+    W -->|untrusted + private + egress| X[blocked, error -32001]
+```
 
 ## What it does
 
