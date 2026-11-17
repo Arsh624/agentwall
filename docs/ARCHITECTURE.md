@@ -115,9 +115,9 @@ Each entry gives the decision, the reason, and the cost.
 
 ### Session id from the parent process
 
-- **Decision.** The session id is `ppid-<parent pid>`, so all wraps started by one agent share it. The environment variable `AGENTWALL_SESSION` overrides it.
+- **Decision.** The session id is `ppid-<agent pid>`, so all wraps started by one agent share it. The agent is our parent; on Windows, a `cmd /c` or PowerShell parent is skipped, because those stay alive between the agent and us. The environment variable `AGENTWALL_SESSION` overrides it.
 - **Why.** The agent starts each wrap as its child. This needs no config, and it works without any agent-specific support.
-- **Trade-off.** The OS can reuse a pid, so a new agent may inherit old taint. That fails closed: delete `sessions/` to reset. If the agent starts the wraps through a shell wrapper, each server gets a different parent, and taint is not shared between servers (issue #18).
+- **Trade-off.** The OS can reuse a pid, so a new agent may inherit old taint. That fails closed: delete `sessions/` to reset. Another kind of wrapper process would give each server its own id, and taint would not be shared between them; `AGENTWALL_SESSION` fixes that.
 
 ### Module layout: `firewall` is the only place the hooks are defined
 
@@ -148,14 +148,13 @@ Each entry gives the decision, the reason, and the cost.
 Each line says what does not work. The sources are in [PROGRESS.md](PROGRESS.md) and in the README threat model.
 
 - Fingerprints miss secrets shorter than 8 words and text that was re-encoded (for example base64).
-- Vault values shorter than 8 characters are not redacted.
+- Vault values shorter than 8 characters are not redacted. Values are caught as written, percent-encoded or in base64, not in other encodings.
 - Without a keychain and a passphrase, redaction is by pattern only.
 - The audit hash chain is not keyed. It detects edits, deletions and reordering inside a chain. It does not detect removal of the newest entries, or a forged whole chain.
-- Server-initiated requests (sampling, elicitation, roots) and server notifications are not filtered or redacted (issue #16).
+- Server notifications and requests are redacted but not tainted. Sampling is refused; over HTTP the refusal is a dropped request, not an error reply.
 - A tool that the policy does not tag gets no flow control.
-- Taint is shared between servers by the parent process id. This is not yet confirmed with a logged-in Claude Code session (issue #18).
-- Duplicate keys in `params.arguments` can be read differently by the policy and by the server (issue #13).
-- A request that the server never answers stays in the pending map (issue #15).
-- The fingerprint rule blocks writing an edited private file back through an egress tool. The workarounds are `on_fingerprint: ask` or removing the `egress_sink` tag from that tool (issue #17).
+- Taint is shared between servers by the agent's process id. This is not yet confirmed with a logged-in Claude Code session.
+- A request that the server never answers and the agent never cancels stays in the pending map until the process exits.
+- The fingerprint rule blocks writing an edited private file back through an egress tool. The workarounds are `on_fingerprint: ask` or removing the `egress_sink` tag from that tool.
 - The injection heuristics are pattern matching and can be evaded.
 - Not yet verified: a real Claude Code session through agentwall, a real remote HTTP MCP server, and the `ask` prompt with a real agent UI.
