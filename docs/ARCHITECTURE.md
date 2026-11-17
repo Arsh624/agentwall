@@ -153,7 +153,7 @@ Each line says what does not work. The sources are in [PROGRESS.md](PROGRESS.md)
 - The audit hash chain is not keyed. It detects edits, deletions and reordering inside a chain. It does not detect removal of the newest entries, or a forged whole chain.
 - Server notifications and requests are redacted but not tainted. Sampling is refused; over HTTP the refusal is a dropped request, not an error reply.
 - A tool that the policy does not tag gets no flow control.
-- Taint is shared between servers by the agent's process id. This is not yet confirmed with a logged-in Claude Code session.
+- Taint is shared between servers by the agent's process id. Checked with a real Claude Code session on Windows; other agents and macOS/Linux are not checked.
 - A request that the server never answers and the agent never cancels stays in the pending map until the process exits.
 - The fingerprint rule blocks writing an edited private file back through an egress tool. The workarounds are `on_fingerprint: ask` or removing the `egress_sink` tag from that tool.
 - The injection heuristics are pattern matching and can be evaded.
