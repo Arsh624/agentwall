@@ -32,9 +32,8 @@ var ErrNotFound = errors.New("vault: no such secret")
 var nameRE = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 
 type backend interface {
-	get(name string) (string, error)
+	load() (map[string]string, error) // every secret by name
 	set(name, value string) error
-	names() ([]string, error)
 }
 
 type Vault struct{ b backend }
@@ -57,29 +56,31 @@ func (v *Vault) Set(name, value string) error {
 	return v.b.set(name, value)
 }
 
-func (v *Vault) Get(name string) (string, error) { return v.b.get(name) }
+func (v *Vault) Get(name string) (string, error) {
+	all, err := v.b.load()
+	if err != nil {
+		return "", err
+	}
+	value, ok := all[name]
+	if !ok {
+		return "", fmt.Errorf("%w: %s", ErrNotFound, name)
+	}
+	return value, nil
+}
 
 // List returns the secret names, sorted.
 func (v *Vault) List() ([]string, error) {
-	names, err := v.b.names()
+	all, err := v.b.load()
+	names := make([]string, 0, len(all))
+	for n := range all {
+		names = append(names, n)
+	}
 	slices.Sort(names)
 	return names, err
 }
 
 // All returns every secret by name (the redactor needs the values).
-func (v *Vault) All() (map[string]string, error) {
-	names, err := v.b.names()
-	if err != nil {
-		return nil, err
-	}
-	all := map[string]string{}
-	for _, n := range names {
-		if all[n], err = v.b.get(n); err != nil {
-			return nil, err
-		}
-	}
-	return all, nil
-}
+func (v *Vault) All() (map[string]string, error) { return v.b.load() }
 
 // keychain keeps one entry per secret, plus an index entry because keychains cannot list.
 type keychain struct{}
@@ -89,20 +90,23 @@ const (
 	indexKey = "index:names" // ':' is not allowed in secret names, so it cannot collide
 )
 
-func (keychain) get(name string) (string, error) {
-	v, err := keyring.Get(service, name)
-	if errors.Is(err, keyring.ErrNotFound) {
-		return "", fmt.Errorf("%w: %s", ErrNotFound, name)
-	}
-	return v, err
-}
-
-func (k keychain) names() ([]string, error) {
+func (keychain) names() ([]string, error) {
 	idx, err := keyring.Get(service, indexKey)
 	if errors.Is(err, keyring.ErrNotFound) || idx == "" {
 		return nil, nil
 	}
 	return strings.Split(idx, "\n"), err
+}
+
+func (k keychain) load() (map[string]string, error) {
+	names, err := k.names()
+	all := map[string]string{}
+	for _, n := range names {
+		if all[n], err = keyring.Get(service, n); err != nil {
+			return nil, err
+		}
+	}
+	return all, err
 }
 
 func (k keychain) set(name, value string) error {
@@ -163,27 +167,6 @@ func (f *fileBackend) load() (map[string]string, error) {
 		return nil, fmt.Errorf("vault: cannot decrypt %s: wrong %s, or the file was modified", f.path, PassphraseEnv)
 	}
 	return secrets, json.Unmarshal(plain, &secrets)
-}
-
-func (f *fileBackend) get(name string) (string, error) {
-	secrets, err := f.load()
-	if err != nil {
-		return "", err
-	}
-	v, ok := secrets[name]
-	if !ok {
-		return "", fmt.Errorf("%w: %s", ErrNotFound, name)
-	}
-	return v, nil
-}
-
-func (f *fileBackend) names() ([]string, error) {
-	secrets, err := f.load()
-	names := make([]string, 0, len(secrets))
-	for n := range secrets {
-		names = append(names, n)
-	}
-	return names, err
 }
 
 func (f *fileBackend) set(name, value string) error {
