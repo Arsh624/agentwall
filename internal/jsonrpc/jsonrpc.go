@@ -69,19 +69,10 @@ func NewReader(r io.Reader) *Reader { return &Reader{br: bufio.NewReaderSize(r, 
 // Read returns the next frame, io.EOF at the end, or a *ParseError for a bad line.
 func (r *Reader) Read() (*Message, error) {
 	for r.err == nil {
-		var line []byte
-		var err error
-		for { // like ReadBytes('\n'), but bounded
-			var chunk []byte
-			chunk, err = r.br.ReadSlice('\n')
-			line = append(line, chunk...)
-			if len(line) > MaxFrame {
-				r.err = ErrFrameTooLarge
-				return nil, r.err
-			}
-			if err != bufio.ErrBufferFull {
-				break
-			}
+		line, err := ReadLine(r.br)
+		if err == ErrFrameTooLarge {
+			r.err = err
+			break
 		}
 		if line = bytes.TrimSpace(line); len(line) > 0 {
 			return Parse(line)
@@ -89,6 +80,21 @@ func (r *Reader) Read() (*Message, error) {
 		r.err = err
 	}
 	return nil, r.err
+}
+
+// ReadLine is br.ReadBytes('\n') bounded by MaxFrame.
+func ReadLine(br *bufio.Reader) ([]byte, error) {
+	var line []byte
+	for {
+		chunk, err := br.ReadSlice('\n')
+		line = append(line, chunk...)
+		if len(line) > MaxFrame {
+			return nil, ErrFrameTooLarge
+		}
+		if err != bufio.ErrBufferFull {
+			return line, err
+		}
+	}
 }
 
 // shortcut: JSON-RPC batches (arrays) are rejected; MCP dropped them in 2025-06-18. Add if an old server needs them.
