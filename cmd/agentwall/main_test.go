@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"io"
 	"os"
@@ -30,7 +31,7 @@ func run(t *testing.T, stdin string, args ...string) (string, error) {
 }
 
 func TestStubCommandsRegistered(t *testing.T) {
-	for _, line := range []string{"init", "proxy", "secret set NAME", "approve srv/tool", "attack"} {
+	for _, line := range []string{"init", "proxy", "secret set NAME", "attack"} {
 		if _, err := run(t, "", strings.Fields(line)...); err == nil || err.Error() != "not implemented" {
 			t.Fatalf("%q: error = %v, want %q", line, err, "not implemented")
 		}
@@ -171,5 +172,82 @@ func TestHeistAcrossThreeServers(t *testing.T) {
 
 	if out, err := run(t, "", "verify"); err != nil {
 		t.Fatalf("verify: %s, %v", out, err)
+	}
+}
+
+// talk runs "wrap" and returns a function that sends one request and waits for its reply,
+// so a test can order its steps the way a real agent does.
+func talk(t *testing.T, args ...string) (ask func(req string) string, stop func()) {
+	t.Helper()
+	inR, inW := io.Pipe()
+	outR, outW := io.Pipe()
+	cmd := newRootCmd()
+	cmd.SetIn(inR)
+	cmd.SetOut(outW)
+	cmd.SetErr(io.Discard)
+	cmd.SetArgs(args)
+	done := make(chan error, 1)
+	go func() { done <- cmd.Execute(); outW.Close() }()
+	replies := bufio.NewReader(outR)
+	ask = func(req string) string {
+		t.Helper()
+		io.WriteString(inW, req+"\n")
+		line, err := replies.ReadString('\n')
+		if err != nil {
+			t.Fatalf("no reply to %s: %v", req, err)
+		}
+		return line
+	}
+	return ask, func() {
+		t.Helper()
+		inW.Close()
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestRugPullThenApprove(t *testing.T) {
+	t.Setenv("AGENTWALL_HOME", t.TempDir())
+	t.Setenv(mockserver.EnvScenario, "../../testdata/rugpull.json")
+	const (
+		list    = `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`
+		callAdd = `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"add","arguments":{"a":1,"b":2}}}`
+	)
+
+	// the mock server changes "add" on its second tools/list
+	ask, stop := talk(t, "wrap", "--server", "mock", "--", os.Args[0])
+	if out := ask(list); !strings.Contains(out, `"name":"add"`) || !strings.Contains(out, `"name":"read_file"`) {
+		t.Fatalf("first list must show both tools: %s", out)
+	}
+	if out := ask(callAdd); strings.Contains(out, "-32001") {
+		t.Fatalf("a pinned tool must be callable: %s", out)
+	}
+	if out := ask(list); strings.Contains(out, `"name":"add"`) || strings.Contains(out, "IMPORTANT") || !strings.Contains(out, `"name":"read_file"`) {
+		t.Fatalf("second list must hide the changed tool only: %s", out)
+	}
+	if out := ask(callAdd); !strings.Contains(out, "-32001") || !strings.Contains(out, "agentwall approve mock/add") {
+		t.Fatalf("calling the changed tool must be blocked: %s", out)
+	}
+	stop()
+
+	if _, err := run(t, "", "approve", "mock/read_file"); err == nil {
+		t.Fatal("approving a tool with no pending change must fail")
+	}
+	if _, err := run(t, "", "approve", "no-slash"); err == nil {
+		t.Fatal("approve needs <server>/<tool>")
+	}
+	if out, err := run(t, "", "approve", "mock/add"); err != nil || !strings.Contains(out, "mock/add") {
+		t.Fatalf("approve: %q, %v", out, err)
+	}
+
+	// a new server process: its first list is the OLD definition (now the unapproved one), its second the approved one
+	ask, stop = talk(t, "wrap", "--server", "mock", "--", os.Args[0])
+	defer stop()
+	if out := ask(list); strings.Contains(out, `"name":"add"`) {
+		t.Fatalf("the old definition is no longer the approved one: %s", out)
+	}
+	if out := ask(list); !strings.Contains(out, `"name":"add"`) || !strings.Contains(out, "notes") {
+		t.Fatalf("the approved definition must be shown: %s", out)
 	}
 }
