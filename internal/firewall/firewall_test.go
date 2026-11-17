@@ -12,6 +12,7 @@ import (
 	"github.com/Arsh624/agentwall/internal/pin"
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/session"
+	"github.com/Arsh624/agentwall/internal/vault"
 )
 
 const testPolicy = `
@@ -50,7 +51,7 @@ func open(t *testing.T, stateDir, server, sessionID string, p *policy.Policy) *F
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { log.Close(); prints.Close() })
-	return &Firewall{Server: server, Session: sess, Policy: p, Audit: log, Prints: prints, Pins: pin.Open(filepath.Join(stateDir, "pins"))}
+	return &Firewall{Server: server, Session: sess, Policy: p, Audit: log, Prints: prints, Pins: pin.Open(filepath.Join(stateDir, "pins")), Redact: vault.NewRedactor(nil)}
 }
 
 func toolCall(name, args string) *jsonrpc.Message {
