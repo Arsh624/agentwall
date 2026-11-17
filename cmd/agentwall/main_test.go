@@ -30,14 +30,6 @@ func run(t *testing.T, stdin string, args ...string) (string, error) {
 	return out.String(), err
 }
 
-func TestStubCommandsRegistered(t *testing.T) {
-	for _, line := range []string{"proxy"} {
-		if _, err := run(t, "", strings.Fields(line)...); err == nil || err.Error() != "not implemented" {
-			t.Fatalf("%q: error = %v, want %q", line, err, "not implemented")
-		}
-	}
-}
-
 func TestMockServerCommand(t *testing.T) {
 	out, err := run(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`+"\n", "mock-server", "../../testdata/basic.json")
 	if err != nil || !strings.Contains(out, "read_file") {
