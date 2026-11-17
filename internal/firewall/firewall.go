@@ -78,7 +78,26 @@ func (f *Firewall) Close() error {
 }
 
 func (f *Firewall) Hooks() proxy.Hooks {
-	return proxy.Hooks{OnRequest: f.onRequest, OnResponse: f.onResponse}
+	return proxy.Hooks{OnRequest: f.onRequest, OnResponse: f.onResponse, OnServerMessage: f.onServerMessage}
+}
+
+// onServerMessage vets what the server sends the agent on its own: logs, progress, list changes,
+// and requests for roots, user input or the agent's model.
+func (f *Firewall) onServerMessage(m *jsonrpc.Message) proxy.Decision {
+	if m.Method == "sampling/createMessage" {
+		// the server would write the model's prompt and read its answer: an injection and an egress channel no policy can see into
+		const reason = "servers may not use the agent's model (sampling)"
+		if f.audit(m.Method, m.Params, string(policy.Deny), reason) != nil {
+			return proxy.Decision{Deny: true, Reason: "the audit log is unavailable"}
+		}
+		return proxy.Decision{Deny: true, Reason: reason}
+	}
+	var found []string
+	if m.Params, found = f.Redact.JSON(m.Params); found != nil {
+		slices.Sort(found)
+		f.audit(m.Method, nil, "redact", "removed from a server message before the agent saw it: "+strings.Join(slices.Compact(found), ", "))
+	}
+	return proxy.Decision{}
 }
 
 type callParams struct {

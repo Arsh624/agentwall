@@ -176,6 +176,29 @@ func TestHTTPServerStreamPassesThrough(t *testing.T) {
 	}
 }
 
+func TestHTTPServerMessagesGoThroughTheHook(t *testing.T) {
+	h := redactHook
+	h.OnServerMessage = func(m *jsonrpc.Message) Decision {
+		if m.Method == "notifications/tools/list_changed" {
+			return Decision{Deny: true, Reason: "test"}
+		}
+		m.Params = json.RawMessage(`"hooked"`)
+		return Decision{}
+	}
+	p := front(t, &upstream{sse: true}, h)
+	if _, body := post(t, p.URL, callGood); !strings.Contains(body, `"params":"hooked"`) || strings.Contains(body, `"progress":1`) {
+		t.Fatalf("a notification on a reply stream must be hooked: %q", body)
+	}
+	resp, err := http.Get(p.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if b, _ := io.ReadAll(resp.Body); strings.Contains(string(b), "list_changed") || !strings.Contains(string(b), ": keep-alive") {
+		t.Fatalf("a denied message must be dropped from the GET stream: %q", b)
+	}
+}
+
 func TestHTTPRejectsBrowsersAndBadFrames(t *testing.T) {
 	u := &upstream{}
 	p := front(t, u, redactHook)

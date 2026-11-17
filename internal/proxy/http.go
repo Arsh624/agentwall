@@ -15,8 +15,7 @@ import (
 // JSON-RPC messages here and they go to the upstream URL through the same
 // hooks. headers (the server's credentials) are set on every upstream request.
 //
-// shortcut: basic by design. Server notifications and requests on a stream pass
-// through unhooked, and JSON-RPC batches are refused.
+// shortcut: basic by design. JSON-RPC batches are refused.
 func HTTPHandler(upstream string, headers map[string]string, h Hooks) http.Handler {
 	return &httpProxy{upstream: upstream, headers: headers, hooks: h}
 }
@@ -170,14 +169,24 @@ func (p *httpProxy) stream(w http.ResponseWriter, upstream io.Reader, req *jsonr
 // An event that carries a reply nobody asked for is dropped.
 func (p *httpProxy) rewrite(event []string, data string, req *jsonrpc.Message) []string {
 	m, err := jsonrpc.Parse([]byte(data))
-	if err != nil || !m.IsResponse() {
-		return event // comments, notifications, server requests
-	}
-	if req == nil || string(m.ID) != string(req.ID) {
+	switch {
+	case err != nil:
+		return event // comments, keep-alives
+	case m.Method != "": // notifications and server requests
+		if p.hooks.OnServerMessage == nil {
+			return event
+		}
+		if d := p.hooks.OnServerMessage(m); d.Deny {
+			// shortcut: a denied server request gets no answer, so upstream waits for one; POST an error back if a server needs it.
+			log.Printf("agentwall: dropped %s from upstream: %s", m.Method, d.Reason)
+			return nil
+		}
+	case !m.IsResponse():
+		return event
+	case req == nil || string(m.ID) != string(req.ID):
 		log.Printf("agentwall: dropped upstream response with unknown id %s", m.ID)
 		return nil
-	}
-	if p.hooks.OnResponse != nil {
+	case p.hooks.OnResponse != nil:
 		m = p.hooks.OnResponse(req, m)
 	}
 	var out strings.Builder
