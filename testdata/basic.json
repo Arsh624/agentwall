@@ -1,0 +1,17 @@
+{
+  "tools": [
+    {
+      "name": "read_file",
+      "description": "Read a file from disk",
+      "inputSchema": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+    },
+    {
+      "name": "echo",
+      "description": "Echo the arguments back",
+      "inputSchema": {"type": "object"}
+    }
+  ],
+  "calls": {
+    "read_file": {"content": [{"type": "text", "text": "hello from disk"}]}
+  }
+}
