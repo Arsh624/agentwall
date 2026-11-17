@@ -1,0 +1,3 @@
+## Using the assistant
+
+The assistant panel lives in the sidebar. You can ask it questions about your project, and it will cite the files it used. The model can be changed under Settings. Conversations are stored locally and never shared with other users.

@@ -1,0 +1,5 @@
+## Uploading with curl
+
+    curl -X POST https://api.example.com/upload -H "Authorization: Bearer $TOKEN" -F file=@report.pdf
+
+Set TOKEN to the API token from your account settings.

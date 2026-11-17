@@ -5,11 +5,12 @@ Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
 - Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
-- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19). CI green on ubuntu/windows/macos (+ race detector on Linux).
-- Current milestone: M5 code complete on `m5-credential-broker`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
-- Next task: M6 — injection heuristics `[SONNET]`, branch `m6-injection-heuristics`, issue #6. Subagent writes
-  `internal/detect` + corpus in `testdata/injections/`; Fable wires it into `firewall.onResponse` (score ≥ threshold →
-  `Session.Add(session.Untrusted)` + audit entry `detect`; never blocks on its own).
+- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20). CI green on ubuntu/windows/macos (+ race detector on Linux).
+- Current milestone: M6 code complete on `m6-injection-heuristics`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
+- Next task: M7 — attack suite + benchmarks `[SONNET]`, branch `m7-attack-suite`, issue #7. Plan: Fable first moves
+  the firewall construction out of `cmd/agentwall` into `firewall.Open(Config)` so the attack runner can build the same
+  firewall in-process; then a Sonnet subagent writes `attacks/*.json` (embedded), the runner, `agentwall attack`, the CI
+  step; a second Sonnet task does `bench_test.go`, `scripts/load` and `docs/BENCHMARKS.md`.
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
   #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
 - Model that last worked: Fable 5.2
@@ -84,6 +85,15 @@ Continue from **Next task**. Update this file and commit after every task.
     our env − `AGENTWALL_PASSPHRASE` + the server's vault secrets, and refuses to start if one is missing.
   - Verified end to end: upstream receives the token (mock `printenv` tool), the agent sees `[REDACTED:github]`,
     the passphrase is not passed on, another server does not get the token, no file holds the token in clear text.
+- M6 — injection heuristics (branch `m6-injection-heuristics`):
+  - `internal/detect` (Sonnet): `Score(text) Result{Score, Signals}`, `Threshold = 3`. Signals: `override` (3),
+    `hidden-unicode` (3), `role` (2), `addressed` (2), `secrecy` (2), `exfil` (2), `base64` (1), `url-send` (1).
+    Corpus in `testdata/injections/{positive,negative}`; `TestCorpus` prints precision/recall and fails below 0.90 / 0.85.
+    Keyword search on a lowercased copy picks small windows for the regexps, so cost stays low on large outputs;
+    `TestFastMatchesReference` checks it against the plain whole-text version.
+  - `internal/firewall` (Fable): `scan` runs on every `tools/call` result of a session that is not yet untrusted;
+    a suspicious result marks the session `untrusted` and is audited as `detect` with the signal names. It never blocks.
+  - Verified: an injection returned by an UNTAGGED tool taints the session and then completes the trifecta.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.
@@ -157,3 +167,4 @@ Continue from **Next task**. Update this file and commit after every task.
 - `secret set` echoes the value when typed at a terminal (hiding it needs x/term, not an allowed dependency). Pipe it in.
 - Server notifications (e.g. `notifications/message` logs) are not redacted: only answers to agent requests go through the hooks (issue #16).
 - The vault tests and the M5 CLI wiring were written together with the code, not seen failing first (the redactor, policy env, firewall and CLI tests were).
+- `detect` speed (83 µs per 10 KB) comes from keyword hits + short anchored regexps. Known gaps versus the plain whole-text version: matches longer than 160 bytes, non-ASCII look-alike letters, and a rare false `addressed` hit on very long lines. Two corpus false positives are accepted (a security blog quoting an attack, curl upload docs): they only taint.

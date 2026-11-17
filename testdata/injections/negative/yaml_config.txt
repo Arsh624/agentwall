@@ -1,0 +1,9 @@
+server:
+  port: 8080
+  read_timeout: 30s
+auth:
+  token_ttl: 3600
+  secret_name: app-signing-key
+database:
+  host: db.internal
+  pool_size: 10
