@@ -49,7 +49,16 @@ type Policy struct {
 	onTrifecta    Action
 	onFingerprint Action
 	servers       map[string]map[string]*tool
+	env           map[string]map[string]string // server → env var → vault secret name
 }
+
+// Env returns the secrets a server's process needs: environment variable → vault secret name.
+func (p *Policy) Env(server string) map[string]string { return p.env[server] }
+
+var (
+	envNameRE  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	vaultRefRE = regexp.MustCompile(`^vault:([A-Za-z0-9_.-]+)$`)
+)
 
 // OnTrifecta is what happens to an egress call in a session that read both untrusted and private data: Deny or Ask.
 func (p *Policy) OnTrifecta() Action { return p.onTrifecta }
@@ -67,6 +76,7 @@ type rawPolicy struct {
 			Action   string            `yaml:"action"`
 			DenyArgs map[string]string `yaml:"deny_args"`
 		} `yaml:"tools"`
+		Env map[string]string `yaml:"env"`
 	} `yaml:"servers"`
 }
 
@@ -107,7 +117,7 @@ func Parse(data []byte) (*Policy, error) {
 	if err := dec.Decode(&raw); err != nil && !errors.Is(err, io.EOF) {
 		return nil, fmt.Errorf("policy: %w", err)
 	}
-	p := &Policy{def: Allow, onTrifecta: Deny, onFingerprint: Deny, servers: map[string]map[string]*tool{}}
+	p := &Policy{def: Allow, onTrifecta: Deny, onFingerprint: Deny, servers: map[string]map[string]*tool{}, env: map[string]map[string]string{}}
 	for key, f := range map[string]struct {
 		raw string
 		dst *Action
@@ -129,6 +139,17 @@ func Parse(data []byte) (*Policy, error) {
 	}
 	for sn, s := range raw.Servers {
 		p.servers[sn] = map[string]*tool{}
+		for name, ref := range s.Env {
+			m := vaultRefRE.FindStringSubmatch(ref)
+			if !envNameRE.MatchString(name) || m == nil {
+				// never echo ref: it may be a literal secret someone pasted
+				return nil, fmt.Errorf("policy: %s: env %q must be a variable name mapped to \"vault:<secret name>\"", sn, name)
+			}
+			if p.env[sn] == nil {
+				p.env[sn] = map[string]string{}
+			}
+			p.env[sn][name] = m[1]
+		}
 		for tn, rt := range s.Tools {
 			t := &tool{tags: rt.Tags}
 			if rt.Action != "" {
