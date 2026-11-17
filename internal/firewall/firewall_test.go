@@ -7,12 +7,8 @@ import (
 	"testing"
 
 	"github.com/Arsh624/agentwall/internal/audit"
-	"github.com/Arsh624/agentwall/internal/flow"
 	"github.com/Arsh624/agentwall/internal/jsonrpc"
-	"github.com/Arsh624/agentwall/internal/pin"
 	"github.com/Arsh624/agentwall/internal/policy"
-	"github.com/Arsh624/agentwall/internal/session"
-	"github.com/Arsh624/agentwall/internal/vault"
 )
 
 const testPolicy = `
@@ -38,20 +34,12 @@ func newFirewall(t *testing.T) (*Firewall, string) {
 // open builds a firewall the way one agentwall process does: its own handles on the shared state dir.
 func open(t *testing.T, stateDir, server, sessionID string, p *policy.Policy) *Firewall {
 	t.Helper()
-	log, err := audit.Open(filepath.Join(stateDir, "audit.jsonl"))
+	f, err := Open(Config{StateDir: stateDir, Server: server, Session: sessionID, Policy: p})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sess, err := session.Open(stateDir, sessionID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	prints, err := flow.OpenStore(filepath.Join(stateDir, "fingerprints"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { log.Close(); prints.Close() })
-	return &Firewall{Server: server, Session: sess, Policy: p, Audit: log, Prints: prints, Pins: pin.Open(filepath.Join(stateDir, "pins")), Redact: vault.NewRedactor(nil)}
+	t.Cleanup(func() { f.Close() })
+	return f
 }
 
 func toolCall(name, args string) *jsonrpc.Message {

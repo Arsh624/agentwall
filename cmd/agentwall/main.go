@@ -16,11 +16,9 @@ import (
 
 	"github.com/Arsh624/agentwall/internal/audit"
 	"github.com/Arsh624/agentwall/internal/firewall"
-	"github.com/Arsh624/agentwall/internal/flow"
 	"github.com/Arsh624/agentwall/internal/pin"
 	"github.com/Arsh624/agentwall/internal/policy"
 	"github.com/Arsh624/agentwall/internal/proxy"
-	"github.com/Arsh624/agentwall/internal/session"
 	"github.com/Arsh624/agentwall/internal/vault"
 	"github.com/spf13/cobra"
 )
@@ -152,8 +150,8 @@ func stateDir() string {
 	return filepath.Join(home, ".agentwall")
 }
 
-func auditPath() string { return filepath.Join(stateDir(), "audit.jsonl") }
-func pinsDir() string   { return filepath.Join(stateDir(), "pins") }
+func auditPath() string { return firewall.AuditPath(stateDir()) }
+func pinsDir() string   { return firewall.PinsDir(stateDir()) }
 
 func loadPolicy(flag string) (*policy.Policy, error) {
 	if flag != "" {
@@ -250,22 +248,12 @@ func runWrap(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	log, err := audit.Open(auditPath())
+	fw, err := firewall.Open(firewall.Config{StateDir: stateDir(), Server: server, Session: sessionID(),
+		Policy: pol, Secrets: secrets, Ask: firewall.TerminalAsk})
 	if err != nil {
 		return err
 	}
-	defer log.Close()
-	sess, err := session.Open(stateDir(), sessionID())
-	if err != nil {
-		return err
-	}
-	prints, err := flow.OpenStore(filepath.Join(stateDir(), "fingerprints"))
-	if err != nil {
-		return err
-	}
-	defer prints.Close()
-	fw := &firewall.Firewall{Server: server, Session: sess, Policy: pol, Audit: log, Prints: prints,
-		Pins: pin.Open(pinsDir()), Redact: vault.NewRedactor(secrets), Ask: firewall.TerminalAsk}
+	defer fw.Close()
 	return proxy.Wrap(cmd.Context(), args, env, cmd.InOrStdin(), cmd.OutOrStdout(), fw.Hooks())
 }
 
