@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/agentwall/agentwall/internal/jsonrpc"
+	"github.com/Arsh624/agentwall/internal/jsonrpc"
 )
 
 // harness runs the proxy between an in-memory "agent" and "upstream" the test controls.

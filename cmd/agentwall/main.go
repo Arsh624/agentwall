@@ -12,12 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/agentwall/agentwall/internal/audit"
-	"github.com/agentwall/agentwall/internal/firewall"
-	"github.com/agentwall/agentwall/internal/flow"
-	"github.com/agentwall/agentwall/internal/policy"
-	"github.com/agentwall/agentwall/internal/proxy"
-	"github.com/agentwall/agentwall/internal/session"
+	"github.com/Arsh624/agentwall/internal/audit"
+	"github.com/Arsh624/agentwall/internal/firewall"
+	"github.com/Arsh624/agentwall/internal/flow"
+	"github.com/Arsh624/agentwall/internal/pin"
+	"github.com/Arsh624/agentwall/internal/policy"
+	"github.com/Arsh624/agentwall/internal/proxy"
+	"github.com/Arsh624/agentwall/internal/session"
 	"github.com/spf13/cobra"
 )
 
@@ -60,11 +61,22 @@ func newRootCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 	}))
 
-	approve := stub(&cobra.Command{
+	approve := &cobra.Command{
 		Use:   "approve <server>/<tool>",
 		Short: "Accept a changed tool",
 		Args:  cobra.ExactArgs(1),
-	})
+		RunE: func(cmd *cobra.Command, args []string) error {
+			server, tool, ok := strings.Cut(args[0], "/")
+			if !ok || server == "" || tool == "" {
+				return fmt.Errorf("want <server>/<tool>, got %q", args[0])
+			}
+			if err := pin.Open(pinsDir()).Approve(server, tool); err != nil {
+				return err
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "approved %s/%s: the agent sees it again after it next lists tools\n", server, tool)
+			return nil
+		},
+	}
 
 	logCmd := &cobra.Command{
 		Use:   "log",
@@ -123,6 +135,7 @@ func stateDir() string {
 }
 
 func auditPath() string { return filepath.Join(stateDir(), "audit.jsonl") }
+func pinsDir() string   { return filepath.Join(stateDir(), "pins") }
 
 func loadPolicy(flag string) (*policy.Policy, error) {
 	if flag != "" {
@@ -181,7 +194,8 @@ func runWrap(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer prints.Close()
-	fw := &firewall.Firewall{Server: server, Session: sess, Policy: pol, Audit: log, Prints: prints, Ask: firewall.TerminalAsk}
+	fw := &firewall.Firewall{Server: server, Session: sess, Policy: pol, Audit: log, Prints: prints,
+		Pins: pin.Open(pinsDir()), Ask: firewall.TerminalAsk}
 	return proxy.Wrap(cmd.Context(), args, nil, cmd.InOrStdin(), cmd.OutOrStdout(), fw.Hooks())
 }
 

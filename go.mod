@@ -1,4 +1,4 @@
-module github.com/agentwall/agentwall
+module github.com/Arsh624/agentwall
 
 go 1.27.3
 
