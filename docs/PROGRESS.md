@@ -4,43 +4,19 @@ Any model picking this up: read this file, then `docs/PLAN.md`, then `git log --
 Continue from **Next task**. Update this file and commit after every task.
 
 ## Status
-- Current milestone: M4 IN PROGRESS (M1, M2, M3 are code complete on their branches, PRs not opened yet — see blockers)
-- Next task: M4 — see "M4 resume notes" below. Session stopped here because the usage limit was about to hit.
-- Branches (stacked, merge in this order): `main` = M0 → `m1-jsonrpc-proxy` → `m2-policy-audit` → `m3-flow-control` → `m4-tool-pinning`.
+- Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
+- Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12). CI green on ubuntu/windows/macos (+ race detector on Linux).
+- Current milestone: M4 code complete on `m4-tool-pinning`; PR open or about to be (check `gh pr list`). Merge it when CI is green.
+- Next task: M5 — credential broker + redaction `[FABLE]`, branch `m5-credential-broker`, issue #5.
+- Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
+  #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
 - Model that last worked: Fable 5.2
 
-## M4 resume notes (branch `m4-tool-pinning`)
-- DONE and committed (Sonnet, reviewed by Fable, all tests pass): `internal/pin` store, mock server `tools_after`
-  (second `tools/list` returns a changed tool set), `testdata/rugpull.json`. Not wired into the firewall or CLI yet.
-- pin API the rest is designed against: `pin.Open(dir) *Store` (dir = `<state>/pins`, one JSON file per server, atomic save,
-  no caching), `pin.Hash(tool) (hex, err)` = SHA-256 of canonical JSON of the WHOLE tool definition,
-  `(*Store).Check(server, tools []json.RawMessage) ([]Status, error)` with `New` (pinned now) / `Same` / `Changed`
-  (new hash stored as pending), `(*Store).Approve(server, tool) error` (`ErrNothingPending`).
-- Still to do after that (Fable, tests first):
-  1. `internal/firewall`: add `Pins *pin.Store`. In `onResponse` for `tools/list`: decode `result` as
-     `map[string]json.RawMessage`, run `Pins.Check` on `tools`, drop `Changed` tools from the list, warn on stderr,
-     audit each (`decision: "pin"`), re-encode the result (keep `nextCursor` and other keys). Pin store error → error
-     response (fail closed). Remember hidden tool names in memory and deny `tools/call` to them
-     ("definition changed, run `agentwall approve <server>/<tool>`").
-  2. `cmd/agentwall`: `approve <server>/<tool>` → `pin.Open(<state>/pins).Approve`; wire `Pins` in `runWrap`.
-  3. CLI test with `testdata/rugpull.json`: one wrap process, `tools/list` twice → second list has no `add`, calling
-     `add` is blocked; after `approve mock/add` a new wrap run lists `add` again.
-  4. Update this file, commit. Then M5 (Fable): vault + redaction.
-- Decision: hash the whole tool definition, not only name+description+inputSchema (a rug pull can hide in
-  `annotations`/`title`/`outputSchema`). Pins are per-server files, not one `pins.json`, because every server's
-  agentwall lists tools at startup at the same time and one shared file would lose updates.
-
-## Blockers (need the user)
-- `gh auth login` — gh 2.104 is installed (`C:\Program Files\GitHub CLI`) but not signed in.
-  Nothing is pushed: no remote, no issues, no PRs yet.
-- Once signed in, catch up in this order:
-  1. `gh api user --jq .login` → rename module `github.com/agentwall/agentwall` → `github.com/<login>/agentwall`
-     (go.mod + every import; one `fix:`/`chore:` commit on the newest branch).
-  2. `gh repo create agentwall --public --source . --push` (pushes `main`), `gh label create milestone`.
-  3. Issues `M1: …` to `M9: …` with the PLAN task lists as checkboxes, label `milestone`.
-  4. Push `m1-jsonrpc-proxy`, PR with `Closes #<M1 issue>`, wait for CI, `gh pr merge --merge`. Then `m2-policy-audit` the same way
-     (branches are stacked, so merge in order), then each later branch.
-  5. Open the follow-up issues listed under "Known issues" below.
+## How to do a milestone PR
+- `gh` lives in `C:/Program Files/GitHub CLI` (in Git Bash: `export PATH="$PATH:/c/Program Files/GitHub CLI"`).
+- Branch from up-to-date `main`. When done: `git push -u origin <branch>`,
+  `gh pr create --base main --title "M<n>: <name>" --body-file <file>` (first line `Closes #<n>`, summary, local test output),
+  `gh pr checks <pr> --watch`, then `gh pr merge <pr> --merge`, then `git checkout main && git pull`.
 
 ## Workflow (from M1 on)
 - One GitHub issue per milestone (`M<n>: <name>`, PLAN tasks as checkboxes, label `milestone`).
@@ -84,12 +60,19 @@ Continue from **Next task**. Update this file and commit after every task.
   - Verified: heist scenario blocked at step 3 (firewall test + CLI test with three real wrap processes for
     github/filesystem/fetch sharing one session), four benign sequences pass, fingerprint catches pasted text in a
     fresh session, another agent's session is unaffected.
+- M4 — tool pinning (branch `m4-tool-pinning`):
+  - `internal/pin` (Sonnet): one JSON file per server in `<state>/pins`, `Check` → `New` / `Same` / `Changed`, `Approve`.
+  - `internal/firewall` (Fable): on a `tools/list` result, changed tools are removed, warned about on stderr and audited
+    (`pin`); `tools/call` to a hidden tool is denied with the `agentwall approve` command in the reason. An unreadable
+    tool list or pin store → the list is withheld.
+  - CLI: `agentwall approve <server>/<tool>`.
+  - Verified: rug-pull scenario end to end (`testdata/rugpull.json`): tool hidden on the second list, call blocked,
+    visible again after approve.
 
 ## Decisions made (and why)
 - Go, single binary: fast proxy, easy install, cross-platform.
 - YAML policy, not OPA/Cedar: smallest thing that works for v0.1.
 - Session-level taint + n-gram fingerprints: catches the trifecta without an ML model.
-- Module path `github.com/agentwall/agentwall` is a PLACEHOLDER until the GitHub login is known.
 - Reviews: the lead (Fable) reviews each subagent's diff and reruns the checks itself instead of
   dispatching separate reviewer subagents. Why: user asked to be frugal and to review personally.
 - Subagents do not commit; the lead commits after review.
@@ -121,6 +104,12 @@ Continue from **Next task**. Update this file and commit after every task.
   One matching 8-word window is enough to block.
 - The trifecta rule lives in `internal/firewall` (it needs session + policy + audit together); `internal/flow` holds
   only fingerprinting.
+- Pins hash the WHOLE tool definition, not only name+description+inputSchema (a rug pull can hide in `annotations`,
+  `title` or `outputSchema`). One pin file per server instead of one `pins.json`: every server's agentwall lists
+  tools at startup at the same time and one shared file would lose updates.
+- A changed tool is detected when a `tools/list` RESULT arrives. A call sent before that result is not blocked
+  (the agent has not seen the new description yet).
+- CI runs on pull requests and on pushes to `main` only (not twice per PR).
 
 ## Known issues / notes for next session
 - Follow-up issues to open once gh works:
