@@ -228,15 +228,14 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
 - Fingerprints miss secrets shorter than 8 words, and text that was re-encoded (for example in base64).
 - Vault values shorter than 8 characters are stored but not redacted.
+- A vault secret is caught as written, percent-encoded, or inside base64 (for example a Basic auth header). Other encodings (hex, compression, a secret split across fields) are not.
 - Without a keychain and without `AGENTWALL_PASSPHRASE`, `wrap` runs with pattern-only redaction. It prints a warning.
 - The audit hash chain is not keyed. It detects edits, deletions and reordering inside a chain. It does not detect removal of the newest entries, or a forged whole chain.
-- Server-initiated requests (sampling, elicitation, roots) and server notifications are not filtered or redacted (issue #16).
+- Server notifications and requests (logs, progress, elicitation, roots) are redacted but not tainted. Sampling requests are refused. Over HTTP a refused request gets no answer, so the server waits for one.
 - A tool that the policy does not tag gets no flow control.
-- Taint is shared between the MCP servers of one agent by the parent process id. This has not yet been confirmed with a logged-in Claude Code session (issue #18). If the servers get different parent ids, taint is not shared between them.
-- Duplicate keys in tool arguments can be read differently by the policy and by the server (issue #13).
-- A request that the server never answers stays in memory (issue #15).
+- Taint is shared between the MCP servers of one agent by the agent's process id (on Windows, agentwall looks past `cmd /c` and PowerShell wrappers). This has not yet been confirmed with a logged-in Claude Code session. If the servers still get different ids, set the same `AGENTWALL_SESSION` in each server's `env`.
 - The injection heuristics are pattern matching. They can be evaded.
-- The fingerprint rule blocks writing an edited private file back through an egress tool (for example, reading a file and then committing it with `create_or_update_file`). Set `on_fingerprint: ask` to be asked instead, or remove the `egress_sink` tag from that tool (issue #17).
+- The fingerprint rule blocks writing an edited private file back through an egress tool (for example, reading a file and then committing it with `create_or_update_file`). Set `on_fingerprint: ask` to be asked instead, or remove the `egress_sink` tag from that tool. This is on purpose: the firewall cannot tell your own repository from someone else's.
 - Anyone with access to your user account can read `~/.agentwall`.
 
 ## How it compares

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"log"
@@ -25,6 +26,21 @@ type Hooks struct {
 	// OnResponse sees each upstream response with the request that caused it and
 	// returns the (non-nil) response to deliver to the agent.
 	OnResponse func(req, resp *jsonrpc.Message) *jsonrpc.Message
+	// OnServerMessage sees every notification and request upstream sends the agent,
+	// and may rewrite it in place. A denied request is answered with an error for upstream.
+	OnServerMessage func(m *jsonrpc.Message) Decision
+}
+
+// cancelledID is the id of the request a notifications/cancelled message gives up on, or "".
+func cancelledID(m *jsonrpc.Message) string {
+	if m.Method != "notifications/cancelled" {
+		return ""
+	}
+	var p struct {
+		RequestID json.RawMessage `json:"requestId"`
+	}
+	json.Unmarshal(m.Params, &p)
+	return string(p.RequestID)
 }
 
 // Run pipes frames between the agent and the upstream server until upstream
@@ -32,8 +48,8 @@ type Hooks struct {
 func Run(agentIn io.Reader, agentOut io.Writer, upIn io.WriteCloser, upOut io.Reader, h Hooks) error {
 	toAgent, toUp := jsonrpc.NewWriter(agentOut), jsonrpc.NewWriter(upIn)
 	var mu sync.Mutex
-	// shortcut: a request that upstream never answers stays here forever; expire entries if long sessions leak.
-	pending := map[string]*jsonrpc.Message{} // request id → request, until its response arrives
+	// shortcut: a request upstream never answers and the agent never cancels stays here until the process exits.
+	pending := map[string]*jsonrpc.Message{} // request id → request, until its response arrives or the agent cancels it
 
 	go func() {
 		defer upIn.Close()
@@ -57,11 +73,13 @@ func Run(agentIn io.Reader, agentOut io.Writer, upIn io.WriteCloser, upOut io.Re
 						continue
 					}
 				}
+				mu.Lock()
 				if m.IsRequest() {
-					mu.Lock()
 					pending[string(m.ID)] = m // before the write, so a fast response always finds it
-					mu.Unlock()
+				} else if id := cancelledID(m); id != "" {
+					delete(pending, id) // the agent ignores a late answer, so the proxy drops it
 				}
+				mu.Unlock()
 			}
 			if toUp.Write(m) != nil {
 				return
@@ -94,6 +112,13 @@ func Run(agentIn io.Reader, agentOut io.Writer, upIn io.WriteCloser, upOut io.Re
 			}
 			if h.OnResponse != nil {
 				m = h.OnResponse(req, m)
+			}
+		} else if m.Method != "" && h.OnServerMessage != nil {
+			if d := h.OnServerMessage(m); d.Deny {
+				if m.IsRequest() {
+					toUp.Write(jsonrpc.ErrorResponse(m.ID, CodeBlocked, "agentwall blocked this request: "+d.Reason))
+				}
+				continue
 			}
 		}
 		if err := toAgent.Write(m); err != nil {

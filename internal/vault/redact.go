@@ -2,7 +2,9 @@ package vault
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -38,8 +40,13 @@ type secret struct{ name, value string }
 func NewRedactor(secrets map[string]string) *Redactor {
 	r := &Redactor{}
 	for name, value := range secrets {
-		if len(value) >= minSecretLen {
-			r.secrets = append(r.secrets, secret{name, value})
+		if len(value) < minSecretLen {
+			continue
+		}
+		for _, v := range encodings(value) {
+			if !slices.Contains(r.secrets, secret{name, v}) {
+				r.secrets = append(r.secrets, secret{name, v})
+			}
 		}
 	}
 	slices.SortFunc(r.secrets, func(a, b secret) int {
@@ -49,6 +56,23 @@ func NewRedactor(secrets map[string]string) *Redactor {
 		return strings.Compare(a.name, b.name)
 	})
 	return r
+}
+
+// encodings are the forms a secret takes when a server echoes it back:
+// as is, percent-encoded in a URL, or inside base64 (a Basic auth header,
+// a git extraheader). base64 shifts with the secret's offset in the encoded
+// text, so each of the three alignments gets the run of characters that
+// encodes only secret bytes.
+func encodings(s string) []string {
+	out := []string{s, url.QueryEscape(s), url.PathEscape(s)}
+	for k, skip := range []int{0, 2, 3} { // leading characters that mix in the k bytes before the secret
+		b := append(make([]byte, k), s...)
+		b = b[:len(b)/3*3] // the last partial group mixes in the bytes after it
+		for _, enc := range []*base64.Encoding{base64.RawStdEncoding, base64.RawURLEncoding} {
+			out = append(out, enc.EncodeToString(b)[skip:])
+		}
+	}
+	return out
 }
 
 // Text redacts s and returns the names of what it found (nil if nothing).
@@ -101,9 +125,11 @@ func (r *Redactor) JSON(raw json.RawMessage) (json.RawMessage, []string) {
 				v[i] = walk(v[i])
 			}
 		case map[string]any:
-			for k := range v {
-				v[k] = walk(v[k])
+			out := make(map[string]any, len(v))
+			for k, val := range v {
+				out[walk(k).(string)] = walk(val)
 			}
+			return out
 		}
 		return v
 	}

@@ -209,7 +209,7 @@ func sessionID() string {
 	if s := os.Getenv("AGENTWALL_SESSION"); s != "" {
 		return s
 	}
-	return fmt.Sprintf("ppid-%d", os.Getppid())
+	return fmt.Sprintf("ppid-%d", agentPID())
 }
 
 func runSecretSet(cmd *cobra.Command, args []string) error {

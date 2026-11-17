@@ -4,6 +4,7 @@ package firewall
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -78,7 +79,26 @@ func (f *Firewall) Close() error {
 }
 
 func (f *Firewall) Hooks() proxy.Hooks {
-	return proxy.Hooks{OnRequest: f.onRequest, OnResponse: f.onResponse}
+	return proxy.Hooks{OnRequest: f.onRequest, OnResponse: f.onResponse, OnServerMessage: f.onServerMessage}
+}
+
+// onServerMessage vets what the server sends the agent on its own: logs, progress, list changes,
+// and requests for roots, user input or the agent's model.
+func (f *Firewall) onServerMessage(m *jsonrpc.Message) proxy.Decision {
+	if m.Method == "sampling/createMessage" {
+		// the server would write the model's prompt and read its answer: an injection and an egress channel no policy can see into
+		const reason = "servers may not use the agent's model (sampling)"
+		if f.audit(m.Method, m.Params, string(policy.Deny), reason) != nil {
+			return proxy.Decision{Deny: true, Reason: "the audit log is unavailable"}
+		}
+		return proxy.Decision{Deny: true, Reason: reason}
+	}
+	var found []string
+	if m.Params, found = f.Redact.JSON(m.Params); found != nil {
+		slices.Sort(found)
+		f.audit(m.Method, nil, "redact", "removed from a server message before the agent saw it: "+strings.Join(slices.Compact(found), ", "))
+	}
+	return proxy.Decision{}
 }
 
 type callParams struct {
@@ -91,9 +111,14 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 		return proxy.Decision{}
 	}
 	var call callParams
-	if err := json.Unmarshal(req.Params, &call); err != nil || call.Name == "" {
+	params, err := canonical(req.Params)
+	if err == nil {
+		err = json.Unmarshal(params, &call)
+	}
+	if err != nil || call.Name == "" {
 		return proxy.Decision{Deny: true, Reason: "malformed tools/call"}
 	}
+	req.Params = params // upstream gets what the policy checks, whatever its parser does with duplicate keys
 
 	d := f.Policy.Decide(f.Server, call.Name, call.Arguments)
 	f.mu.Lock()
@@ -123,6 +148,23 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 		return proxy.Decision{Deny: true, Reason: "the audit log is unavailable"} // no unlogged calls
 	}
 	return proxy.Decision{Deny: d.Action == policy.Deny, Reason: d.Reason}
+}
+
+// canonical re-encodes JSON as Go reads it: one value per key (the last), numbers as written.
+func canonical(raw json.RawMessage) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // flowRules judges a call to an egress tool: the stricter of the trifecta rule and the fingerprint rule.

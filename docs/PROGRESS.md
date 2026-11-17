@@ -14,10 +14,13 @@ Continue from **Next task**. Update this file and commit after every task.
 - NEEDS THE USER: (1) one real Claude Code session through agentwall (the `claude` CLI on this machine is not logged
   in) - steps in "Known issues" below (issue #18); (2) a 30-second demo GIF at `docs/demo.gif` (the README has a
   placeholder).
-- Next: the open follow-up issues (#13, #15, #16, #17, #18), then the stretch list in PLAN.md.
-- Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups: #13 duplicate keys in arguments, #14 frame size cap,
-  #15 pending map expiry, #16 server-initiated requests, #17 fingerprint vs read-edit-write-back, #18 session id on Windows.
-- Model that last worked: Fable 5.2
+- Hardening after v0.1.0 (branch `harden-v0.1.1`): secrets redacted in base64/percent-encoded form and in object keys;
+  server notifications and requests redacted, sampling refused (#16); cancelled requests forgotten (#15); tools/call
+  params re-encoded before upstream (#13); Windows session id looks past cmd/PowerShell parents (#18). #17 closed
+  as by design. `main` is branch-protected: PR + the 3 CI checks required, admin bypass on.
+- Next: the stretch list in PLAN.md.
+- Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups #13–#18 are closed.
+- Model that last worked: Opus 5.5
 
 ## How to do a milestone PR
 - `gh` lives in `C:/Program Files/GitHub CLI` (in Git Bash: `export PATH="$PATH:/c/Program Files/GitHub CLI"`).
@@ -183,38 +186,33 @@ Continue from **Next task**. Update this file and commit after every task.
 - HTTP mode refuses any request that carries an `Origin` header: browsers send it, MCP clients do not, and the proxy
   adds credentials, so a web page must not be able to use the local port. It listens on loopback by default and warns
   when told to listen elsewhere.
-- HTTP mode uses one session per proxy process (not per `Mcp-Session-Id`), and server notifications on a stream pass
-  through unhooked (issue #16). JSON-RPC batches are refused in both transports.
+- HTTP mode uses one session per proxy process (not per `Mcp-Session-Id`). JSON-RPC batches are refused in both transports.
+- Server messages (#16): redacted, not tainted (logs and progress are not model input in today's agents). Sampling
+  is refused outright: the server would write the prompt and read the answer, which no policy can see into.
+- Vault values are also matched percent-encoded and as the 3 base64 alignments (std and URL alphabets), so a
+  server echoing a Basic auth header is caught. Hex and compressed forms are not.
+- #17 stays as designed: writing private text back through an egress tool is blocked, because the firewall cannot
+  tell the user's repo from an attacker's. Workarounds: `on_fingerprint: ask`, or untag the tool.
 - `init` only prints what to change; editing a user's agent config is theirs to do.
 - The README keeps the SPEC's pitch ("Your agent never sees a real secret") and lists the cases where that does not
   hold under "What it does not stop". The comparison section only says what we know and tells the reader to check.
 
 ## Known issues / notes for next session
-- Follow-up issues to open once gh works:
-  - Duplicate keys / escapes inside `params.arguments`: policy decodes arguments with Go's rules (last key wins);
-    an upstream that takes the first key would see a different value. Fix idea: re-encode arguments after decoding.
-  - No frame size cap in `jsonrpc.Reader` (memory DoS from a hostile upstream). Needed before HTTP mode (M8).
-  - `proxy.Run` pending map never expires requests that upstream never answers (cancelled calls).
-  - Server-initiated requests (sampling, elicitation, roots) and the agent's replies pass through unfiltered.
 - Race detector cannot run locally (no cgo on this Windows box); it runs in CI on Linux.
 - Audit hash chains are unkeyed: they catch edits, deletions and reordering inside a chain, but not removal of
   the newest entries, nor a forged whole chain. Say so in the threat model (M9).
 - `ask` prompting on the terminal while Claude Code's TUI owns it is untested — check by hand in M8.
 - The firewall tests were written together with the code while the policy/audit subagents were still running,
   so they were never seen failing first.
-- CHECK IN M8: session id = parent pid assumes the agent starts `agentwall` directly. If Claude Code on Windows goes
-  through `cmd /c`, every server gets a different parent and cross-server taint is lost (fails OPEN). Then document
-  `AGENTWALL_SESSION` in the `.mcp.json` snippet or find a better default.
 - Fingerprints block the normal "read private file, edit, write it back through an egress tool" workflow
   (e.g. github `create_or_update_file` after `get_file_contents`). Escape hatches today: `on_fingerprint: ask`, or
   remove the `egress_sink` tag from that tool. Worth a follow-up issue (e.g. per-tool exemption).
 - Fingerprints miss short secrets (< 8 words) and re-encoded text (base64). Say so in the threat model (M9).
 - Parent pid reuse can hand old taint to a new agent (fails closed). Reset: delete `<state>/sessions`.
 - `secret set` echoes the value when typed at a terminal (hiding it needs x/term, not an allowed dependency). Pipe it in.
-- Server notifications (e.g. `notifications/message` logs) are not redacted: only answers to agent requests go through the hooks (issue #16).
 - The vault tests and the M5 CLI wiring were written together with the code, not seen failing first (the redactor, policy env, firewall and CLI tests were).
 - `detect` speed (83 µs per 10 KB) comes from keyword hits + short anchored regexps. Known gaps versus the plain whole-text version: matches longer than 160 bytes, non-ASCII look-alike letters, and a rare false `addressed` hit on very long lines. Two corpus false positives are accepted (a security blog quoting an attack, curl upload docs): they only taint.
-- TO VERIFY WITH A REAL AGENT (issue #18): in a project, create `.mcp.json` with two servers started through
+- TO VERIFY WITH A REAL AGENT: in a project, create `.mcp.json` with two servers started through
   `agentwall wrap` (e.g. the filesystem server and `uvx mcp-server-fetch`), use both in one Claude Code session, then run
   `agentwall log`: every entry of that session must show the same session id. If the ids differ, set
   `AGENTWALL_SESSION` in each server's `env` in `.mcp.json`. Evidence so far: the not-logged-in CLI created one
