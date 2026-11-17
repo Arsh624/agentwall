@@ -1,5 +1,5 @@
-// Package firewall turns policy, audit, taint, fingerprints, pins and redaction
-// (later detect) into the proxy's hooks. One Firewall guards one upstream server.
+// Package firewall turns policy, audit, taint, fingerprints, pins, redaction
+// and injection heuristics into the proxy's hooks. One Firewall guards one upstream server.
 package firewall
 
 import (
@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/Arsh624/agentwall/internal/audit"
+	"github.com/Arsh624/agentwall/internal/detect"
 	"github.com/Arsh624/agentwall/internal/flow"
 	"github.com/Arsh624/agentwall/internal/jsonrpc"
 	"github.com/Arsh624/agentwall/internal/pin"
@@ -121,6 +122,9 @@ func (f *Firewall) onResponse(req, resp *jsonrpc.Message) *jsonrpc.Message {
 
 	err := f.taint(call, tags, policy.TagUntrusted, session.Untrusted)
 	if err == nil {
+		err = f.scan(call, resp)
+	}
+	if err == nil {
 		err = f.taint(call, tags, policy.TagPrivate, session.Private)
 	}
 	if err == nil && slices.Contains(tags, policy.TagPrivate) {
@@ -200,6 +204,27 @@ func (f *Firewall) pinTools(resp *jsonrpc.Message) *jsonrpc.Message {
 	result["tools"], _ = json.Marshal(kept)
 	resp.Result, _ = json.Marshal(result)
 	return resp
+}
+
+// scan taints the session when a tool's output reads like a prompt injection.
+// It never blocks by itself: the flow rules decide what an untrusted session may do.
+func (f *Firewall) scan(call callParams, resp *jsonrpc.Message) error {
+	if f.Session.Has(session.Untrusted) {
+		return nil // already as distrusted as it gets
+	}
+	for _, text := range flow.Strings(resp.Result) {
+		r := detect.Score(text)
+		if !r.Suspicious() {
+			continue
+		}
+		added, err := f.Session.Add(session.Untrusted)
+		if added {
+			f.audit(call.Name, call.Arguments, "detect", fmt.Sprintf("session is now untrusted: output of %s/%s looks like a prompt injection (%s)",
+				f.Server, call.Name, strings.Join(r.Signals, ", ")))
+		}
+		return err
+	}
+	return nil
 }
 
 func (f *Firewall) taint(call callParams, tags []string, tag string, t session.Taint) error {
