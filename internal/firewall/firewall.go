@@ -4,6 +4,7 @@ package firewall
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -110,9 +111,14 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 		return proxy.Decision{}
 	}
 	var call callParams
-	if err := json.Unmarshal(req.Params, &call); err != nil || call.Name == "" {
+	params, err := canonical(req.Params)
+	if err == nil {
+		err = json.Unmarshal(params, &call)
+	}
+	if err != nil || call.Name == "" {
 		return proxy.Decision{Deny: true, Reason: "malformed tools/call"}
 	}
+	req.Params = params // upstream gets what the policy checks, whatever its parser does with duplicate keys
 
 	d := f.Policy.Decide(f.Server, call.Name, call.Arguments)
 	f.mu.Lock()
@@ -142,6 +148,23 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 		return proxy.Decision{Deny: true, Reason: "the audit log is unavailable"} // no unlogged calls
 	}
 	return proxy.Decision{Deny: d.Action == policy.Deny, Reason: d.Reason}
+}
+
+// canonical re-encodes JSON as Go reads it: one value per key (the last), numbers as written.
+func canonical(raw json.RawMessage) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimSuffix(buf.Bytes(), []byte("\n")), nil
 }
 
 // flowRules judges a call to an egress tool: the stricter of the trifecta rule and the fingerprint rule.
