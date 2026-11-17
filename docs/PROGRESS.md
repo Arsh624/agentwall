@@ -6,7 +6,9 @@ Continue from **Next task**. Update this file and commit after every task.
 ## Status
 - Repo: https://github.com/Arsh624/agentwall (public). Module `github.com/Arsh624/agentwall`. gh is signed in as Arsh624.
 - Merged to `main` through PRs: M1 (#10), M2 (#11), M3 (#12), M4 (#19), M5 (#20), M6 (#21), M7 (#22), M8 (#23). CI green on ubuntu/windows/macos (+ race detector on Linux).
-- Released: `v0.1.0` is published (https://github.com/Arsh624/agentwall/releases/tag/v0.1.0): 6 binaries
+- Released: `v0.1.1` (https://github.com/Arsh624/agentwall/releases/tag/v0.1.1) carries the hardening below; its
+  Windows amd64 binary (checksum verified) and `install.sh` on Ubuntu/WSL both passed the attack suite.
+  Before it: `v0.1.0` (https://github.com/Arsh624/agentwall/releases/tag/v0.1.0): 6 binaries
   (linux/darwin/windows x amd64/arm64) + `checksums.txt`, built by `.github/workflows/release.yml` (tests and the attack
   suite ran first). `install.sh` was run once on Ubuntu (WSL): it installed `agentwall 0.1.0`, which passed the attack
   suite. NOT run by hand: the macOS and Windows binaries, the checksum-mismatch path of `install.sh`.
@@ -14,7 +16,7 @@ Continue from **Next task**. Update this file and commit after every task.
 - NEEDS THE USER: (1) one real Claude Code session through agentwall (the `claude` CLI on this machine is not logged
   in) - steps in "Known issues" below (issue #18); (2) a 30-second demo GIF at `docs/demo.gif` (the README has a
   placeholder).
-- Hardening after v0.1.0 (branch `harden-v0.1.1`): secrets redacted in base64/percent-encoded form and in object keys;
+- Hardening in v0.1.1 (PR #27): secrets redacted in base64/percent-encoded form and in object keys;
   server notifications and requests redacted, sampling refused (#16); cancelled requests forgotten (#15); tools/call
   params re-encoded before upstream (#13); Windows session id looks past cmd/PowerShell parents (#18). #17 closed
   as by design. `main` is branch-protected: PR + the 3 CI checks required, admin bypass on.
