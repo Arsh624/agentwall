@@ -1,0 +1,15 @@
+import json
+import sys
+from urllib.request import urlopen
+
+def fetch(url):
+    with urlopen(url) as resp:
+        return json.load(resp)
+
+def main():
+    data = fetch(sys.argv[1])
+    for item in data.get("items", []):
+        print(item["id"], item["name"])
+
+if __name__ == "__main__":
+    main()

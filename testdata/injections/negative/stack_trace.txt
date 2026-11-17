@@ -1,0 +1,9 @@
+panic: runtime error: invalid memory address or nil pointer dereference
+[signal 0xc0000005 code=0x0 addr=0x0 pc=0x4a1b2c]
+
+goroutine 1 [running]:
+main.(*Server).handle(0x0, {0x6f0a00, 0xc000102000})
+	C:/src/app/server.go:88 +0x2c
+main.main()
+	C:/src/app/main.go:21 +0x95
+exit status 2

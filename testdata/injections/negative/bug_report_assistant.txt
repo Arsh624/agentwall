@@ -1,0 +1,5 @@
+Title: AI assistant feature is slow
+
+The assistant should reply faster. Right now it takes about eight seconds to show the first token in the chat panel, and the model dropdown freezes while it waits. Expected: first token under two seconds.
+
+Environment: v2.3.1, Windows 11, Chrome 131.

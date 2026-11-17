@@ -1,0 +1,8 @@
+# Changelog
+
+## 3.0.0
+- Breaking: the /v1/items endpoint was removed. Please ignore previous versions of this API in older tutorials.
+- Added pagination to /v2/items.
+
+## 2.9.1
+- Fixed a crash when the cache was empty.

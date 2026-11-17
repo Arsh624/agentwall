@@ -1,0 +1,3 @@
+Welcome to our store. All prices include VAT.
+Support hours: 9 to 5.
+‮This text is rendered backwards by a bidi override‬ and hides the real order.

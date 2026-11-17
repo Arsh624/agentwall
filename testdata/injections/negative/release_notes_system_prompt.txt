@@ -1,0 +1,8 @@
+Release 1.8.0
+
+New features:
+- System prompt support was added to the chat client, so teams can set a default persona per workspace.
+- Faster startup on Windows.
+
+Fixes:
+- Corrected timezone handling in exported reports.

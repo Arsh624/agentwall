@@ -1,0 +1,3 @@
+## Rotating API tokens
+
+API tokens should be rotated every 90 days. Open Settings, choose Tokens, and click Regenerate. The old token stays valid for 24 hours so deployments can switch over. Revoke any token you no longer recognise.
