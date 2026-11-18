@@ -283,6 +283,10 @@ Environment variables:
 
 For the design, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). For the goals and the reasoning, see [docs/SPEC.md](docs/SPEC.md).
 
+## How this was built
+
+I picked the problem, wrote the threat model and the design ([docs/SPEC.md](docs/SPEC.md), [docs/PLAN.md](docs/PLAN.md)), and split the work into milestones. Most of the code was written with Claude Code working through that plan, test first, one milestone per pull request. I reviewed the results, ran the attack suite and benchmarks, and tested it in a real Claude Code session. The prompts are in [docs/PROMPTS.md](docs/PROMPTS.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
