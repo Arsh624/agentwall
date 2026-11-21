@@ -42,7 +42,7 @@ func TestAttackSuitePasses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v\n%s", err, out)
 	}
-	if !strings.Contains(out, "blocked 5/5 attacks, false positives 0/4") {
+	if !strings.Contains(out, "blocked 9/9 attacks, false positives 0/6") {
 		t.Fatalf("unexpected output:\n%s", out)
 	}
 }

@@ -28,6 +28,10 @@ var tokenPatterns = []struct {
 	{"private-key", []string{"PRIVATE KEY-----"}, regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----`)},
 }
 
+// escapeRE matches CSI (ESC [ ... final), OSC (ESC ] ... BEL or ESC \) and two-byte ESC sequences;
+// a lone ESC at the end goes too, and so does U+009B, the one-character CSI some terminals honour.
+var escapeRE = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[ -~])?|\x{9b}[0-?]*[ -/]*[@-~]`)
+
 var githubHints = []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"}
 
 // Redactor replaces secrets with [REDACTED:<name>] before the agent sees them.
@@ -88,6 +92,10 @@ func (r *Redactor) Text(s string) (string, []string) {
 			s = strings.ReplaceAll(s, sec.value, "[REDACTED:"+sec.name+"]")
 			note(sec.name)
 		}
+	}
+	if strings.IndexByte(s, 0x1b) >= 0 || strings.ContainsRune(s, 0x9b) { // terminal escapes can hide or rewrite text where output is shown
+		s = escapeRE.ReplaceAllString(s, "")
+		note("terminal-escape")
 	}
 	for _, p := range tokenPatterns {
 		if slices.ContainsFunc(p.hints, func(h string) bool { return strings.Contains(s, h) }) && p.re.MatchString(s) {

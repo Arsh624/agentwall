@@ -16,6 +16,7 @@ func isolate(t *testing.T) (state, home, cwd string) {
 	t.Setenv("AGENTWALL_HOME", state)
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
+	t.Setenv("AGENTWALL_PASSPHRASE", "test-passphrase") // init creates the audit key: keep it out of the real keychain
 	t.Chdir(cwd)
 	return
 }

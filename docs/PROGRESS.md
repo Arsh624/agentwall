@@ -25,7 +25,16 @@ Continue from **Next task**. Update this file and commit after every task.
   server notifications and requests redacted, sampling refused (#16); cancelled requests forgotten (#15); tools/call
   params re-encoded before upstream (#13); Windows session id looks past cmd/PowerShell parents (#18). #17 closed
   as by design. `main` is branch-protected: PR + the 3 CI checks required, admin bypass on.
-- Next: the stretch list in PLAN.md.
+- v0.2 security (branch `v0.2-security`, spec `docs/superpowers/specs/2026-11-21-v0.2-security-design.md`, plan
+  `docs/superpowers/plans/2026-11-21-v0.2-security.md`): `detect.ScoreTool` + first-sight hiding of poisoned and
+  shadowing tools (`pin.Distrust`/`Names`/`Others`), terminal-escape stripping in the redactor, `allowed_hosts` in the
+  policy, HMAC-signed audit entries (`audit.OpenSigned`/`VerifySigned`, key = vault secret `audit-key` made by
+  `init`). Attack suite: blocked 9/9, false positives 0/6. `testdata/tools/` holds the real tool lists of the
+  official filesystem/fetch/github servers (43 tools) as a false-positive fixture.
+- Lesson: tests that run `init` must set `AGENTWALL_PASSPHRASE`, or they write `audit-key` into the real OS keychain
+  (happened once on 2026-11-21; the two Windows credentials were removed by hand).
+- Next: phase 2, ease of use: `ask` through MCP elicitation instead of the terminal, `init --apply` that wraps the
+  agent config itself, a Claude Code plugin/skill for one-step setup. Needs its own spec.
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups #13–#18 are closed.
 - Model that last worked: Opus 5.5
 

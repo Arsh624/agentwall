@@ -16,11 +16,11 @@ It is for people who run AI agents with MCP servers on their own computer, and w
 - Blocks 5 of 5 scripted attacks in the bundled suite, with 0 false positives on 4 normal sessions. You can rerun it with `agentwall attack`.
 - Adds about 0.2 ms at p99 per tool call for 1 KB payloads (0.5 ms for 10 KB), well under the 2 ms target. See [Benchmarks](#benchmarks).
 - One Go binary for Linux, macOS and Windows. Works with stdio and HTTP MCP servers.
-- Covers the GitHub MCP "lethal trifecta" heist, secret exfiltration through fetch, tool rug pulls, zero-width injection and cross-session leaks of private text.
+- Covers the GitHub MCP "lethal trifecta" heist, secret exfiltration through fetch, poisoned and shadowing tool descriptions, tool rug pulls, terminal escape tricks, zero-width injection and cross-session leaks of private text.
 
 ## Demo
 
-![A Claude Code session reads a private file and fetches a web page; agentwall blocks the second fetch as a lethal trifecta, then the attack suite blocks 5 of 5 attacks with 0 false positives](docs/demo.gif)
+![A Claude Code session reads a private file and fetches a web page; agentwall blocks the second fetch as a lethal trifecta, then the attack suite blocks 9 of 9 attacks with 0 false positives](docs/demo.gif)
 
 This is real output, replayed: one Claude Code session (Haiku, Windows) with the filesystem and fetch servers, each behind `agentwall wrap`, then `agentwall attack`. The prompt and long lines are shortened. `scripts/demo/make_gif.py` renders it.
 
@@ -55,8 +55,10 @@ flowchart LR
 - **Fingerprints of private text.** Text from private tool outputs is hashed in 8-word windows. An egress call whose arguments contain that text is blocked, even in a later session.
 - **Credential broker.** Secrets are stored in agentwall's vault (the OS keychain, or an encrypted file). They are passed only to the MCP server's environment or HTTP headers, so the agent's config holds no secret. Secret-looking text in tool output is replaced with `[REDACTED:<name>]` before the agent sees it.
 - **Tool pinning.** agentwall hashes each tool's whole definition the first time it sees it. If the definition changes later (a rug pull, where a tool quietly changes what it does), the tool is hidden until you run `agentwall approve`.
-- **Policy file.** One YAML file sets tags, `allow` / `deny` / `ask` per tool, argument rules, and the environment for each server.
-- **Tamper-evident audit log.** Every decision is written to a JSONL file. Each entry includes a hash of the previous entry. `agentwall verify` detects edits, deletions and reordering.
+- **Poisoned and shadowing tools.** A tool is not trusted on first sight if its description reads like an injection (it tells the model to hide something from the user, uses `<IMPORTANT>`-style tags, or names files such as `~/.ssh/id_rsa` or `mcp.json`), or if it gives orders about another server's tool. It stays hidden until you approve it. The 43 tools of the official filesystem, fetch and github servers all pass.
+- **Terminal escape codes stripped.** Escape sequences that hide or rewrite text in a terminal are removed from tool output and logged.
+- **Policy file.** One YAML file sets tags, `allow` / `deny` / `ask` per tool, argument rules, the hosts an egress tool may reach (`allowed_hosts`), and the environment for each server.
+- **Signed audit log.** Every decision is written to a JSONL file. Each entry includes a hash of the previous entry and an HMAC under a key kept in the vault. `agentwall verify` detects edits, deletions, reordering and rebuilt chains.
 - **Injection heuristics.** Pattern checks look for text such as "ignore previous instructions" and hidden zero-width characters in tool output. A match marks the session untrusted. It never blocks a call by itself.
 - **Attack suite.** `agentwall attack` replays scripted attacks and harmless control runs against mock servers, so you can check the firewall yourself.
 
@@ -168,6 +170,12 @@ servers:
           path: '\.env$'               # deny the call when this argument matches the regexp
       write_file:
         action: ask                    # ask you before each call
+
+  fetch:
+    tools:
+      fetch:
+        tags: [untrusted_source, egress_sink]
+        allowed_hosts: [docs.python.org, github.com]   # any other host in a URL argument is denied; subdomains count
 ```
 
 The three tags:
@@ -180,21 +188,27 @@ The policy file is `~/.agentwall/policy.yaml`. To use another file, pass `--poli
 
 ## Attack suite
 
-The suite replays five attacks and four harmless runs through the real proxy and firewall:
+The suite replays nine attacks and six harmless runs through the real proxy and firewall:
 
 ```
 SCENARIO                   KIND    RESULT
+ansi-escape                attack  blocked
+benign-allowed-host        benign  allowed
 benign-issue-triage        benign  allowed
 benign-private-coding      benign  allowed
+benign-real-tool-lists     benign  allowed
 benign-stable-tools        benign  allowed
 benign-web-research        benign  allowed
+egress-allowlist           attack  blocked
 fingerprint-cross-session  attack  blocked
 github-heist               attack  blocked
 rug-pull                   attack  blocked
 secret-exfil-fetch         attack  blocked
+tool-poisoning             attack  blocked
+tool-shadowing             attack  blocked
 zero-width-injection       attack  blocked
 
-blocked 5/5 attacks, false positives 0/4
+blocked 9/9 attacks, false positives 0/6
 ```
 
 CI runs the suite on Linux, Windows and macOS.
@@ -222,9 +236,11 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 - An agent that has read untrusted content and then sends private data out through an egress tool, in one session or across MCP servers of one agent.
 - Private text that is pasted into an egress call, including in a later session.
 - Secrets appearing in tool output, and secrets sitting in the agent's config.
-- A tool whose definition changed after you accepted it.
+- A tool whose definition changed after you accepted it, and a new tool whose description is poisoned or gives orders about another server's tool.
+- Terminal escape codes in tool output.
+- An egress tool reaching a host outside its `allowed_hosts`.
 - Prompt-injection text in tool output. It marks the session untrusted, so the flow rules apply.
-- Edits, deletions and reordering of entries inside the audit log chain (`agentwall verify` detects them).
+- Edits, deletions and reordering of audit entries, and a chain rebuilt by someone without the audit key (`agentwall verify` detects them).
 
 ### What it does not stop
 
@@ -232,7 +248,9 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 - Vault values shorter than 8 characters are stored but not redacted.
 - A vault secret is caught as written, percent-encoded, or inside base64 (for example a Basic auth header). Other encodings (hex, compression, a secret split across fields) are not.
 - Without a keychain and without `AGENTWALL_PASSPHRASE`, `wrap` runs with pattern-only redaction. It prints a warning.
-- The audit hash chain is not keyed. It detects edits, deletions and reordering inside a chain. It does not detect removal of the newest entries, or a forged whole chain.
+- The audit log cannot show that its newest entries were removed. A log written without a vault (or before v0.2) is unsigned; `verify` counts those entries and says so.
+- The poisoning scan is pattern matching on the description. A tool can still be written to evade it; the flow rules then still apply. Shadowing is only checked for tool names that contain `_` or `-`.
+- `allowed_hosts` checks `http(s)://` URLs inside string arguments. A host passed as a bare string is not checked.
 - Server notifications and requests (logs, progress, elicitation, roots) are redacted but not tainted. Sampling requests are refused. Over HTTP a refused request gets no answer, so the server waits for one.
 - A tool that the policy does not tag gets no flow control.
 - Taint is shared between the MCP servers of one agent by the agent's process id (on Windows, agentwall looks past `cmd /c` and PowerShell wrappers). This was checked with a real Claude Code session on Windows (2.1.177, filesystem and fetch servers): both servers shared one session, and the second fetch was blocked as a lethal trifecta. If your servers still get different ids, set the same `AGENTWALL_SESSION` in each server's `env`.
@@ -265,12 +283,12 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
 ## Status
 
-v0.1, early. The firewall and its tests run on Linux, Windows and macOS in CI. Two things are not yet verified: a real Claude Code session going through agentwall, and a real remote HTTP MCP server. The `ask` prompt has not been tested with a real agent UI.
+v0.2. The firewall and its tests run on Linux, Windows and macOS in CI, and it was checked in a real Claude Code session on Windows. Not yet verified: a real remote HTTP MCP server, and the `ask` prompt in a real agent UI.
 
 State lives in `~/.agentwall/`:
 
 - `policy.yaml`: the policy file written by `init`.
-- `audit.jsonl`: the audit log.
+- `audit.jsonl`: the audit log. Its signing key is the vault secret `audit-key`, created by `init`.
 - `pins/`: one file per server with the accepted tool hashes.
 - `sessions/`, `fingerprints`: taint markers and fingerprints shared by the processes of one agent.
 - `vault.enc`: the encrypted vault, only when the passphrase backend is used.

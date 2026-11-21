@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"regexp"
 	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -41,7 +43,8 @@ type rule struct {
 type tool struct {
 	tags   []string
 	action Action
-	rules  []rule // sorted by arg name
+	rules  []rule   // sorted by arg name
+	hosts  []string // allowed_hosts, lowercase; empty: no check
 }
 
 type Policy struct {
@@ -62,6 +65,8 @@ func (p *Policy) Headers(server string) map[string]string { return p.headers[ser
 var (
 	envNameRE  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 	headerRE   = regexp.MustCompile(`^[A-Za-z0-9-]+$`)
+	hostRE     = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+	urlRE      = regexp.MustCompile(`(?i)https?://[^\s"'<>]+`)
 	vaultRefRE = regexp.MustCompile(`^vault:([A-Za-z0-9_.-]+)$`)
 )
 
@@ -80,6 +85,7 @@ type rawPolicy struct {
 			Tags     []string          `yaml:"tags"`
 			Action   string            `yaml:"action"`
 			DenyArgs map[string]string `yaml:"deny_args"`
+			Hosts    []string          `yaml:"allowed_hosts"`
 		} `yaml:"tools"`
 		Env     map[string]string `yaml:"env"`
 		Headers map[string]string `yaml:"headers"`
@@ -170,6 +176,13 @@ func Parse(data []byte) (*Policy, error) {
 					return nil, fmt.Errorf("policy: %s/%s: unknown tag %q", sn, tn, tag)
 				}
 			}
+			for _, h := range rt.Hosts {
+				h = strings.ToLower(h)
+				if !hostRE.MatchString(h) {
+					return nil, fmt.Errorf("policy: %s/%s: allowed_hosts: %q is not a host name", sn, tn, h)
+				}
+				t.hosts = append(t.hosts, h)
+			}
 			for arg, expr := range rt.DenyArgs {
 				re, err := regexp.Compile(expr)
 				if err != nil {
@@ -189,6 +202,44 @@ func Parse(data []byte) (*Policy, error) {
 		}
 	}
 	return p, nil
+}
+
+// unlistedHost returns the host of the first URL in args that allowed does not cover, or "".
+// shortcut: only http(s) URLs inside strings are seen; a bare host argument is not. Add per-arg host rules if a server takes one.
+func unlistedHost(args json.RawMessage, allowed []string) string {
+	var v any
+	if json.Unmarshal(args, &v) != nil {
+		return "unreadable arguments"
+	}
+	var bad string
+	var walk func(any)
+	walk = func(v any) {
+		switch v := v.(type) {
+		case string:
+			for _, raw := range urlRE.FindAllString(v, -1) {
+				u, err := url.Parse(raw)
+				if err != nil {
+					bad = "an unparseable URL"
+					return
+				}
+				host := strings.ToLower(u.Hostname())
+				if !slices.ContainsFunc(allowed, func(a string) bool { return host == a || strings.HasSuffix(host, "."+a) }) {
+					bad = host
+					return
+				}
+			}
+		case []any:
+			for _, x := range v {
+				walk(x)
+			}
+		case map[string]any:
+			for _, x := range v {
+				walk(x)
+			}
+		}
+	}
+	walk(v)
+	return bad
 }
 
 // vaultRefs checks a name → "vault:<secret>" map and returns name → secret.
@@ -249,6 +300,11 @@ func (p *Policy) Decide(server, name string, args json.RawMessage) Decision {
 			if r.re.MatchString(text) {
 				return Decision{Deny, fmt.Sprintf("argument %q matches deny rule", r.arg)}
 			}
+		}
+	}
+	if t != nil && len(t.hosts) > 0 {
+		if host := unlistedHost(args, t.hosts); host != "" {
+			return Decision{Deny, fmt.Sprintf("egress to %s is not in allowed_hosts", host)}
 		}
 	}
 	switch action {

@@ -1,0 +1,50 @@
+{
+  "name": "benign-allowed-host",
+  "description": "Fetching listed hosts and their subdomains works under the same allowlist.",
+  "kind": "benign",
+  "policy": "servers:\n  fetch:\n    tools:\n      fetch: {tags: [untrusted_source, egress_sink], allowed_hosts: [docs.example.com]}\n",
+  "servers": {
+    "fetch": {
+      "tools": [
+        {
+          "name": "fetch",
+          "description": "Fetch a URL",
+          "inputSchema": {
+            "type": "object"
+          }
+        }
+      ],
+      "calls": {
+        "fetch": {
+          "content": [
+            {
+              "type": "text",
+              "text": "Install with go install."
+            }
+          ]
+        }
+      }
+    }
+  },
+  "steps": [
+    {
+      "server": "fetch",
+      "tool": "fetch",
+      "args": {
+        "url": "https://docs.example.com/install"
+      },
+      "expect": "allow",
+      "contains": [
+        "go install"
+      ]
+    },
+    {
+      "server": "fetch",
+      "tool": "fetch",
+      "args": {
+        "url": "https://api.docs.example.com/v1"
+      },
+      "expect": "allow"
+    }
+  ]
+}

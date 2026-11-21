@@ -132,11 +132,24 @@ func newRootCmd() *cobra.Command {
 			Use:   "verify",
 			Short: "Check the audit log hash chain",
 			RunE: func(cmd *cobra.Command, _ []string) error {
-				n, err := audit.Verify(auditPath())
+				key, kerr := vault.Open(stateDir()).Get(auditKeyName)
+				var k []byte
+				if kerr == nil {
+					k = []byte(key)
+				}
+				n, unsigned, err := audit.VerifySigned(auditPath(), k)
 				if err != nil {
 					return fmt.Errorf("audit log has been tampered with or is damaged: %w", err)
 				}
-				fmt.Fprintf(cmd.OutOrStdout(), "audit log OK: %d entries\n", n)
+				out := cmd.OutOrStdout()
+				switch {
+				case k == nil:
+					fmt.Fprintf(out, "audit log OK: %d entries (hash chain only; signatures not checked: %v)\n", n, kerr)
+				case unsigned > 0:
+					fmt.Fprintf(out, "audit log OK: %d entries, signatures checked; %d were written unsigned (before v0.2 or without a vault)\n", n, unsigned)
+				default:
+					fmt.Fprintf(out, "audit log OK: %d entries, signatures checked\n", n)
+				}
 				return nil
 			},
 		},
@@ -269,8 +282,12 @@ func guard(cmd *cobra.Command, server string) (fw *firewall.Firewall, env, heade
 	if headers, err = resolve(pol.Headers(server), secrets); err != nil {
 		return nil, nil, nil, err
 	}
+	var key []byte
+	if k, ok := secrets[auditKeyName]; ok {
+		key = []byte(k)
+	}
 	fw, err = firewall.Open(firewall.Config{StateDir: stateDir(), Server: server, Session: sessionID(),
-		Policy: pol, Secrets: secrets, Ask: firewall.TerminalAsk})
+		Policy: pol, Secrets: secrets, Ask: firewall.TerminalAsk, AuditKey: key})
 	return fw, env, headers, err
 }
 

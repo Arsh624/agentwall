@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -49,6 +50,7 @@ type Config struct {
 	Policy   *policy.Policy
 	Secrets  map[string]string // vault values to redact, by name
 	Ask      func(question string) bool
+	AuditKey []byte // signs audit entries; nil writes them unsigned
 }
 
 func AuditPath(stateDir string) string { return filepath.Join(stateDir, "audit.jsonl") }
@@ -56,7 +58,7 @@ func PinsDir(stateDir string) string   { return filepath.Join(stateDir, "pins") 
 
 // Open builds a Firewall on the shared state directory. Close it when done.
 func Open(c Config) (*Firewall, error) {
-	log, err := audit.Open(AuditPath(c.StateDir))
+	log, err := audit.OpenSigned(AuditPath(c.StateDir), c.AuditKey)
 	if err != nil {
 		return nil, err
 	}
@@ -271,20 +273,51 @@ func (f *Firewall) pinTools(resp *jsonrpc.Message) *jsonrpc.Message {
 		f.hidden = map[string]bool{}
 	}
 	for i, tool := range tools {
-		var t struct{ Name string }
+		var t struct{ Name, Description string }
 		json.Unmarshal(tool, &t) // Check already required a name
-		f.hidden[t.Name] = status[i] == pin.Changed
-		if status[i] != pin.Changed {
+		why := ""
+		switch status[i] {
+		case pin.Changed:
+			why = "tool definition changed since it was pinned"
+		case pin.New: // trust on first use, unless the definition itself is an attack
+			if why = f.distrust(t.Name, t.Description, tool); why != "" {
+				if err := f.Pins.Distrust(f.Server, t.Name); err != nil { // else the next list would trust it
+					log.Printf("agentwall: distrusting %s/%s: %v", f.Server, t.Name, err)
+					return jsonrpc.ErrorResponse(resp.ID, proxy.CodeBlocked, "agentwall withheld the tool list: a suspicious tool could not be recorded")
+				}
+			}
+		}
+		f.hidden[t.Name] = why != ""
+		if why == "" {
 			kept = append(kept, tool)
 			continue
 		}
-		log.Printf("agentwall: tool %s/%s changed since it was pinned and is hidden; to accept it run: agentwall approve %s/%s",
-			f.Server, t.Name, f.Server, t.Name)
-		f.audit(t.Name, tool, "pin", "tool definition changed since it was pinned; hidden until approved")
+		log.Printf("agentwall: tool %s/%s is hidden: %s; to accept it run: agentwall approve %s/%s",
+			f.Server, t.Name, why, f.Server, t.Name)
+		f.audit(t.Name, tool, "pin", why+"; hidden until approved")
 	}
 	result["tools"], _ = json.Marshal(kept)
 	resp.Result, _ = json.Marshal(result)
 	return resp
+}
+
+// distrust says why a tool seen for the first time must not be trusted, or "".
+func (f *Firewall) distrust(name, description string, tool json.RawMessage) string {
+	if r := detect.ScoreTool(string(tool)); r.Suspicious() {
+		return "tool description looks like a prompt injection (" + strings.Join(r.Signals, ", ") + ")"
+	}
+	// shadowing: orders about another server's tool. shortcut: only names with _ or - count,
+	// plain words (fetch, search) are everyday English; upgrade if an attack uses one.
+	others, _ := f.Pins.Others(f.Server)
+	for _, other := range others {
+		names, _ := f.Pins.Names(other)
+		for _, n := range names {
+			if strings.ContainsAny(n, "_-") && regexp.MustCompile(`\b`+regexp.QuoteMeta(n)+`\b`).MatchString(description) {
+				return fmt.Sprintf("tool description gives orders about another server's tool %s/%s", other, n)
+			}
+		}
+	}
+	return ""
 }
 
 // scan taints the session when a tool's output reads like a prompt injection.
