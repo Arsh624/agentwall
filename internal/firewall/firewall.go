@@ -50,6 +50,7 @@ type Config struct {
 	Policy   *policy.Policy
 	Secrets  map[string]string // vault values to redact, by name
 	Ask      func(question string) bool
+	AuditKey []byte // signs audit entries; nil writes them unsigned
 }
 
 func AuditPath(stateDir string) string { return filepath.Join(stateDir, "audit.jsonl") }
@@ -57,7 +58,7 @@ func PinsDir(stateDir string) string   { return filepath.Join(stateDir, "pins") 
 
 // Open builds a Firewall on the shared state directory. Close it when done.
 func Open(c Config) (*Firewall, error) {
-	log, err := audit.Open(AuditPath(c.StateDir))
+	log, err := audit.OpenSigned(AuditPath(c.StateDir), c.AuditKey)
 	if err != nil {
 		return nil, err
 	}

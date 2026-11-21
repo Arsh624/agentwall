@@ -3,6 +3,7 @@ package audit
 import (
 	"bufio"
 	"bytes"
+	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -29,6 +30,7 @@ type Entry struct {
 	Reason   string `json:"reason"`
 	PrevHash string `json:"prev_hash"`
 	Hash     string `json:"hash"`
+	MAC      string `json:"mac,omitempty"` // HMAC-SHA256 of Hash under the audit key; empty when written without one
 }
 
 // Log appends entries to a shared file as one private hash chain.
@@ -37,10 +39,15 @@ type Log struct {
 	f     *os.File
 	chain string
 	last  string
+	key   []byte // nil: entries are not signed
 }
 
-// Open opens the log at path for appending and starts a new chain.
-func Open(path string) (*Log, error) {
+// Open opens the log at path for appending and starts a new, unsigned chain.
+func Open(path string) (*Log, error) { return OpenSigned(path, nil) }
+
+// OpenSigned is Open with every entry signed under key, so that someone who can
+// write the file but has no key cannot rebuild a chain that verifies.
+func OpenSigned(path string, key []byte) (*Log, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
@@ -53,11 +60,11 @@ func Open(path string) (*Log, error) {
 		f.Close()
 		return nil, err
 	}
-	return &Log{f: f, chain: hex.EncodeToString(id)}, nil
+	return &Log{f: f, chain: hex.EncodeToString(id), key: key}, nil
 }
 
 func hashEntry(e Entry) (string, error) {
-	e.Hash = ""
+	e.Hash, e.MAC = "", ""
 	b, err := json.Marshal(e)
 	if err != nil {
 		return "", err
@@ -78,6 +85,9 @@ func (l *Log) Append(e Entry) error {
 		return err
 	}
 	e.Hash = h
+	if l.key != nil {
+		e.MAC = mac(l.key, h)
+	}
 	line, err := json.Marshal(e)
 	if err != nil {
 		return err
@@ -90,6 +100,12 @@ func (l *Log) Append(e Entry) error {
 }
 
 func (l *Log) Close() error { return l.f.Close() }
+
+func mac(key []byte, hash string) string {
+	m := hmac.New(sha256.New, key)
+	m.Write([]byte(hash))
+	return hex.EncodeToString(m.Sum(nil))
+}
 
 // HashArgs returns the hex SHA-256 of raw.
 func HashArgs(raw []byte) string {
@@ -151,11 +167,21 @@ func Read(path string) ([]Entry, error) {
 	return es, err
 }
 
-// Verify checks every chain in the file and returns the number of entries checked.
+// Verify checks every hash chain in the file and returns the number of entries checked.
+// It does not check signatures.
 func Verify(path string) (int, error) {
+	n, _, err := VerifySigned(path, nil)
+	return n, err
+}
+
+// VerifySigned is Verify that also checks signatures under key (nil: none are checked).
+// A chain written without a key (older logs, no vault) is counted in unsigned, not failed;
+// a chain that has any signed entry must be signed throughout.
+func VerifySigned(path string, key []byte) (entries, unsigned int, err error) {
 	last := map[string]string{}
+	signed := map[string]bool{} // chain → its first entry was signed
 	count := 0
-	err := walk(path, func(n int, line []byte) error {
+	err = walk(path, func(n int, line []byte) error {
 		e, err := parse(line)
 		if err != nil {
 			return fmt.Errorf("line %d: invalid entry: %w", n, err)
@@ -170,9 +196,22 @@ func Verify(path string) (int, error) {
 		if e.PrevHash != last[e.Chain] {
 			return fmt.Errorf("line %d: prev_hash does not match previous entry of chain %s", n, e.Chain)
 		}
+		if key != nil {
+			if e.PrevHash == "" {
+				signed[e.Chain] = e.MAC != ""
+			}
+			switch {
+			case e.MAC == "" && signed[e.Chain]:
+				return fmt.Errorf("line %d: unsigned entry in signed chain %s", n, e.Chain)
+			case e.MAC == "":
+				unsigned++
+			case !hmac.Equal([]byte(e.MAC), []byte(mac(key, e.Hash))):
+				return fmt.Errorf("line %d: bad signature (forged, or signed with another key)", n)
+			}
+		}
 		last[e.Chain] = e.Hash
 		count++
 		return nil
 	})
-	return count, err
+	return count, unsigned, err
 }

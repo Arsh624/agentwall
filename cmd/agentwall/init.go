@@ -1,9 +1,12 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Arsh624/agentwall/internal/policy"
+	"github.com/Arsh624/agentwall/internal/vault"
 	"github.com/spf13/cobra"
 )
 
@@ -33,6 +37,8 @@ func runInit(cmd *cobra.Command, _ []string) error {
 		fmt.Fprintf(out, "Policy already exists at %s (left unchanged)\n", path)
 	}
 
+	initAuditKey(out)
+
 	home, _ := os.UserHomeDir()
 	found := false
 	for _, config := range []string{".mcp.json", filepath.Join(".cursor", "mcp.json"),
@@ -51,6 +57,28 @@ No MCP config found here or in your home directory. In .mcp.json (Claude Code) o
 `)
 	}
 	return nil
+}
+
+// auditKeyName is the vault secret that signs audit entries.
+const auditKeyName = "audit-key"
+
+// initAuditKey creates the audit signing key if the vault has none. It never
+// replaces one: that would make every signed entry fail to verify.
+func initAuditKey(out io.Writer) {
+	v := vault.Open(stateDir())
+	_, err := v.Get(auditKeyName)
+	if err == nil {
+		return
+	}
+	if errors.Is(err, vault.ErrNotFound) {
+		b := make([]byte, 32)
+		rand.Read(b)
+		if err = v.Set(auditKeyName, hex.EncodeToString(b)); err == nil {
+			fmt.Fprintln(out, "Created the audit signing key in the vault (audit entries are now signed)")
+			return
+		}
+	}
+	fmt.Fprintf(out, "Audit entries will not be signed, the vault is unavailable: %v\n", err)
 }
 
 // showWrapped prints the agentwall version of every server in one MCP config file.
