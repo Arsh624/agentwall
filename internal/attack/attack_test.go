@@ -14,8 +14,8 @@ func TestSuite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(scs) != 9 {
-		t.Fatalf("got %d scenarios, want 9", len(scs))
+	if len(scs) != 15 {
+		t.Fatalf("got %d scenarios, want 15", len(scs))
 	}
 	var results []Result
 	for _, sc := range scs {
@@ -32,7 +32,7 @@ func TestSuite(t *testing.T) {
 	if !Report(&out, results) {
 		t.Errorf("Report says the suite failed:\n%s", out.String())
 	}
-	if !strings.HasSuffix(strings.TrimSpace(out.String()), "blocked 5/5 attacks, false positives 0/4") {
+	if !strings.HasSuffix(strings.TrimSpace(out.String()), "blocked 9/9 attacks, false positives 0/6") {
 		t.Errorf("unexpected report:\n%s", out.String())
 	}
 }
