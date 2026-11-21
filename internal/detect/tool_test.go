@@ -30,7 +30,9 @@ func TestScoreToolPassesRealServers(t *testing.T) {
 	n := 0
 	for _, f := range files {
 		b, _ := os.ReadFile(f)
-		var m struct{ Result struct{ Tools []json.RawMessage } }
+		var m struct {
+			Result struct{ Tools []json.RawMessage }
+		}
 		if err := json.Unmarshal(b, &m); err != nil {
 			t.Fatal(f, err)
 		}

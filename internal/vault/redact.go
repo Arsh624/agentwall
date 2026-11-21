@@ -32,7 +32,7 @@ var tokenPatterns = []struct {
 // a lone ESC at the end goes too, and so does U+009B, the one-character CSI some terminals honour.
 var escapeRE = regexp.MustCompile(`\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[ -~])?|\x{9b}[0-?]*[ -/]*[@-~]`)
 
-var githubHints =[]string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"}
+var githubHints = []string{"ghp_", "gho_", "ghu_", "ghs_", "ghr_", "github_pat_"}
 
 // Redactor replaces secrets with [REDACTED:<name>] before the agent sees them.
 type Redactor struct {
