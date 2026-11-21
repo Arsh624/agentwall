@@ -8,9 +8,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strings"
 	"sync"
 )
 
@@ -147,6 +150,43 @@ func (s *Store) Check(server string, tools []json.RawMessage) ([]Status, error) 
 		return out, s.save(server, pins)
 	}
 	return out, nil
+}
+
+// Distrust withdraws trust from a pinned tool: its definition becomes pending,
+// so it reads as Changed until Approve.
+func (s *Store) Distrust(server, tool string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pins, err := s.load(server)
+	if err != nil {
+		return err
+	}
+	e := pins[tool]
+	if e == nil || e.Hash == "" {
+		return nil // nothing trusted to withdraw
+	}
+	e.Hash, e.Pending = "", e.Hash
+	return s.save(server, pins)
+}
+
+// Names returns the sorted names of the tools pinned for a server.
+func (s *Store) Names(server string) ([]string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	pins, err := s.load(server)
+	return slices.Sorted(maps.Keys(pins)), err
+}
+
+// Others returns the servers other than server that have pins, by their file names.
+func (s *Store) Others(server string) ([]string, error) {
+	files, err := filepath.Glob(filepath.Join(s.dir, "*.json"))
+	var names []string
+	for _, f := range files {
+		if f != s.path(server) {
+			names = append(names, strings.TrimSuffix(filepath.Base(f), ".json"))
+		}
+	}
+	return names, err
 }
 
 // Approve makes the pending definition of server/tool the pinned one.
