@@ -36,7 +36,7 @@ const (
 var (
 	overrideRe = regexp.MustCompile(`(?i)^(?:ignore\s+(?:(?:all|any|the)\s+)?(?:previous|prior|above|earlier)\s+(?:instructions|prompts|messages|context|rules)|disregard\s+(?:\w+\s+){0,4}(?:instructions|rules)|forget\s+(?:everything|all)\s+(?:above|previous|you\s+were\s+told)|new\s+instructions\s*:|override\s+(?:the\s+)?(?:system|previous)\s+(?:prompt|instructions))`)
 	roleRe     = regexp.MustCompile(`(?i)^(?:you\s+are\s+now|from\s+now\s+on,?\s+you\s+(?:are|will|must)|act\s+as\s+(?:an?\s+)?(?:[\w-]+\s+){0,6}(?:assistant|ai|agent|model)\s+with\s+no|system\s+prompt|developer\s+mode|jailbreak|dan\s+mode)\b`)
-	secrecyRe  = regexp.MustCompile(`(?i)^(?:(?:do\s+not|don['’]?t)\s+(?:tell|mention|inform|reveal|show)\s+(?:\w+\s+){0,6}user|without\s+(?:telling|informing|asking|notifying)\s+(?:the\s+)?user|keep\s+this\s+(?:secret|hidden|between\s+us))`)
+	secrecyRe  = regexp.MustCompile(`(?i)^(?:(?:do\s+not|don['’]?t|never)\s+(?:tell|mention|inform|reveal|show)\s+(?:\w+\s+){0,6}user|without\s+(?:telling|informing|asking|notifying)\s+(?:the\s+)?user|keep\s+this\s+(?:secret|hidden|between\s+us))`)
 	nounRe     = regexp.MustCompile(`^(?:(?:passwords?|credentials|tokens?|api\s+keys?|secrets?|ssh\s+key|private\s+key|private\s+repo(?:sitory)?|contents\s+of)\b|\.env\b|id_rsa)`)
 
 	// addressedRe is unanchored: it needs a line or sentence start before the hit.
@@ -53,6 +53,7 @@ const (
 	kRole
 	kSecrecy
 	kAddressed
+	kSensitive
 	numKinds
 )
 
@@ -64,8 +65,9 @@ var keywords = map[kind][]string{
 	kURL:       {"~http://*", "~https://*"},
 	kOverride:  {"ignore", "disregard", "forget", "new", "override"},
 	kRole:      {"you", "from", "act", "system", "developer", "jailbreak", "dan"},
-	kSecrecy:   {"do", "don*", "without", "keep"},
+	kSecrecy:   {"do", "don*", "never", "without", "keep"},
 	kAddressed: {"ai*", "assistant*", "agent*", "llm*", "model*", "claude*", "chatgpt*", "copilot*", "cursor*", "important*", "system*"},
+	kSensitive: {".ssh", "id_rsa*", "id_ed25519*", ".env", "mcp.json", ".aws", ".netrc"},
 }
 
 type word struct {
@@ -124,13 +126,14 @@ func scanKeywords(lower string) *scan {
 
 type signal struct {
 	name   string
-	weight int
+	weight int // in tool output (Score)
+	tool   int // in a tool definition (ScoreTool)
 	match  func(text string, s *scan) bool
 }
 
 // Kept in name order so Signals comes out sorted.
 var signals = []signal{
-	{"addressed", 2, func(text string, s *scan) bool {
+	{"addressed", 2, 3, func(text string, s *scan) bool {
 		var hits []span
 		for _, h := range s.hits[kAddressed] {
 			if addressedHit(text, h) {
@@ -144,27 +147,40 @@ var signals = []signal{
 		}
 		return false
 	}},
-	{"base64", 1, func(text string, _ *scan) bool { return hasBase64Run(text) }},
-	{"exfil", 2, func(text string, s *scan) bool {
+	{"base64", 1, 1, func(text string, _ *scan) bool { return hasBase64Run(text) }},
+	{"exfil", 2, 2, func(text string, s *scan) bool {
 		n := nouns(s.lower, s.hits[kNoun])
 		return near(text, s.hits[kVerb], n) || near(text, n, s.hits[kVerb])
 	}},
-	{"hidden-unicode", 3, func(text string, _ *scan) bool { return hasHiddenUnicode(text) }},
-	{"override", 3, func(text string, s *scan) bool { return anyMatchAt(overrideRe, text, s.hits[kOverride], matchLen) }},
-	{"role", 2, func(text string, s *scan) bool { return anyMatchAt(roleRe, text, s.hits[kRole], matchLen) }},
-	{"secrecy", 2, func(text string, s *scan) bool { return anyMatchAt(secrecyRe, text, s.hits[kSecrecy], matchLen) }},
-	{"url-send", 1, func(text string, s *scan) bool {
+	{"hidden-unicode", 3, 3, func(text string, _ *scan) bool { return hasHiddenUnicode(text) }},
+	{"override", 3, 3, func(text string, s *scan) bool { return anyMatchAt(overrideRe, text, s.hits[kOverride], matchLen) }},
+	{"role", 2, 2, func(text string, s *scan) bool { return anyMatchAt(roleRe, text, s.hits[kRole], matchLen) }},
+	{"secrecy", 2, 3, func(text string, s *scan) bool { return anyMatchAt(secrecyRe, text, s.hits[kSecrecy], matchLen) }},
+	// a description that names secret files is asking the model to read them; in tool output it is just a listing
+	{"sensitive-file", 0, 3, func(_ string, s *scan) bool { return len(s.hits[kSensitive]) > 0 }},
+	{"url-send", 1, 1, func(text string, s *scan) bool {
 		return near(text, s.hits[kVerb], s.hits[kURL]) || near(text, s.hits[kURL], s.hits[kVerb])
 	}},
 }
 
 // Score rates text. It is pure, safe for concurrent use, and linear in len(text).
-func Score(text string) Result {
+func Score(text string) Result { return score(text, false) }
+
+// ScoreTool rates a tool definition (name, description, schema). A description
+// talks to the model by design, so hiding things from the user, <IMPORTANT>-style
+// tags and secret file paths weigh more here than in tool output.
+func ScoreTool(text string) Result { return score(text, true) }
+
+func score(text string, tool bool) Result {
 	s := scanKeywords(lowerASCII(text))
 	var r Result
 	for _, sg := range signals {
-		if sg.match(text, s) {
-			r.Score += sg.weight
+		w := sg.weight
+		if tool {
+			w = sg.tool
+		}
+		if w > 0 && sg.match(text, s) {
+			r.Score += w
 			r.Signals = append(r.Signals, sg.name)
 		}
 	}
