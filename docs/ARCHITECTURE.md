@@ -83,6 +83,18 @@ Each entry gives the decision, the reason, and the cost.
 - **Why.** A rug pull can hide an instruction in a field other than the description, such as `annotations` or `outputSchema`. Hashing only the usual fields would miss it.
 - **Trade-off.** A harmless change to any field, for example a wording change in `annotations`, hides the tool until `agentwall approve`.
 
+### Trust on first use, unless the definition is the attack
+
+- **Decision.** A new tool is pinned and shown, except when its definition scores as an injection under `detect.ScoreTool` or its description names another server's tool. Then it is pinned as untrusted (`pin.Distrust`) and hidden until `agentwall approve`.
+- **Why.** Pinning only catches a tool that changes. A server that is malicious from the start (tool poisoning) or that steers another server's tool (shadowing) never changes. A description talks to the model by design, so it gets its own weights: hiding something from the user, `<IMPORTANT>` tags and secret file paths count as suspicious on their own there.
+- **Trade-off.** A legitimate tool that trips the scan needs one `approve`. The 43 tools of the official filesystem, fetch and github servers are a test fixture so a weight change that hides them fails CI.
+
+### Audit entries signed with a vault key
+
+- **Decision.** Each entry carries an HMAC-SHA256 of its hash under the vault secret `audit-key`. A chain whose first entry is signed must be signed throughout; whole unsigned chains are counted, not failed.
+- **Why.** A plain hash chain can be rebuilt by anyone who can write the file. The key lives in the keychain, outside the state directory, so rewriting the log is not enough.
+- **Trade-off.** It cannot show that the newest entries were removed; that needs an outside anchor. Older logs stay readable as unsigned.
+
 ### Vault backend choice
 
 - **Decision.** The OS keychain is the default. If `AGENTWALL_PASSPHRASE` is set, the encrypted file is used instead. There is no automatic fallback between them. Without either, `wrap` still runs with pattern-only redaction and prints a warning, unless the policy needs a secret for that server.
@@ -150,7 +162,9 @@ Each line says what does not work. The sources are in [PROGRESS.md](PROGRESS.md)
 - Fingerprints miss secrets shorter than 8 words and text that was re-encoded (for example base64).
 - Vault values shorter than 8 characters are not redacted. Values are caught as written, percent-encoded or in base64, not in other encodings.
 - Without a keychain and a passphrase, redaction is by pattern only.
-- The audit hash chain is not keyed. It detects edits, deletions and reordering inside a chain. It does not detect removal of the newest entries, or a forged whole chain.
+- Removal of the newest audit entries is not detected. Unsigned chains (no vault, or written before v0.2) are counted by `verify`, not failed.
+- The tool-poisoning scan is pattern matching; shadowing is checked only for tool names with `_` or `-`.
+- `allowed_hosts` sees `http(s)://` URLs in strings only.
 - Server notifications and requests are redacted but not tainted. Sampling is refused; over HTTP the refusal is a dropped request, not an error reply.
 - A tool that the policy does not tag gets no flow control.
 - Taint is shared between servers by the agent's process id. Checked with a real Claude Code session on Windows; other agents and macOS/Linux are not checked.
