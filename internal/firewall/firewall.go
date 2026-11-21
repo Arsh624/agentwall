@@ -281,8 +281,9 @@ func (f *Firewall) pinTools(resp *jsonrpc.Message) *jsonrpc.Message {
 			why = "tool definition changed since it was pinned"
 		case pin.New: // trust on first use, unless the definition itself is an attack
 			if why = f.distrust(t.Name, t.Description, tool); why != "" {
-				if err := f.Pins.Distrust(f.Server, t.Name); err != nil {
+				if err := f.Pins.Distrust(f.Server, t.Name); err != nil { // else the next list would trust it
 					log.Printf("agentwall: distrusting %s/%s: %v", f.Server, t.Name, err)
+					return jsonrpc.ErrorResponse(resp.ID, proxy.CodeBlocked, "agentwall withheld the tool list: a suspicious tool could not be recorded")
 				}
 			}
 		}
