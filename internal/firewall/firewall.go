@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 	"unicode/utf8"
 
 	"github.com/Arsh624/agentwall/internal/audit"
@@ -423,7 +425,26 @@ func TerminalAsk(question string) bool {
 		return false
 	}
 	defer r.Close()
-	fmt.Fprintf(w, "agentwall: %s [y/N] ", question)
-	line, _ := bufio.NewReader(r).ReadString('\n')
-	return strings.EqualFold(strings.TrimSpace(line), "y")
+	return askOn(r, w, question, terminalAskTimeout)
+}
+
+// terminalAskTimeout bounds a terminal question: an agent can own the terminal,
+// or no one may be watching it, and the call must not hang forever.
+var terminalAskTimeout = 5 * time.Minute
+
+// askOn writes the question to w and waits up to timeout for a "y" line on r.
+func askOn(r io.Reader, w io.Writer, question string, timeout time.Duration) bool {
+	fmt.Fprintf(w, "agentwall: %s [y/N, no answer in %s is no] ", question, timeout)
+	answer := make(chan string, 1)
+	go func() { // shortcut: on timeout this reader stays blocked until the terminal closes; one per unanswered question
+		line, _ := bufio.NewReader(r).ReadString('\n')
+		answer <- line
+	}()
+	select {
+	case line := <-answer:
+		return strings.EqualFold(strings.TrimSpace(line), "y")
+	case <-time.After(timeout):
+		fmt.Fprintln(w, "\nagentwall: no answer, the call is denied")
+		return false
+	}
 }
