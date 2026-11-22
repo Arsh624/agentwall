@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "agentwall",
+  "description": "agentwall: a local firewall for AI agents' MCP servers.",
+  "owner": {
+    "name": "Archit Shukla",
+    "url": "https://github.com/Arsh624"
+  },
+  "plugins": [
+    {
+      "name": "agentwall",
+      "description": "Install agentwall and put every MCP server of your project behind it: blocks the lethal trifecta, poisoned tools and secret leaks. /agentwall:setup does it in one step.",
+      "source": "./plugin",
+      "category": "security",
+      "license": "MIT",
+      "keywords": ["security", "mcp", "firewall", "prompt-injection", "secrets"]
+    }
+  ]
+}
