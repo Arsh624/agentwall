@@ -61,8 +61,10 @@ func Run(agentIn io.Reader, agentOut io.Writer, upIn io.WriteCloser, upOut io.Re
 	finish := func(qid string, approved bool, why string) {
 		call, ok := qs.take(qid)
 		if !ok {
+			log.Printf("agentwall: question %s had already ended (%s)", qid, why)
 			return
 		}
+		log.Printf("agentwall: question %s about call %s ended: %s", qid, call.ID, why)
 		d := Decision{Deny: !approved, Reason: why}
 		if h.OnAnswer != nil {
 			d = h.OnAnswer(call, approved, why)
@@ -109,11 +111,13 @@ func Run(agentIn io.Reader, agentOut io.Writer, upIn io.WriteCloser, upOut io.Re
 				if d.Ask != "" && m.IsRequest() {
 					q := qs.start(m, d.Ask)
 					time.AfterFunc(askTimeout, func() { finish(string(q.ID), false, "no answer within "+askTimeout.String()) })
+					log.Printf("agentwall: asking the user about call %s (question %s)", m.ID, q.ID)
 					toAgent.Write(q)
 					continue
 				}
 				id := cancelledID(m)
 				if id != "" && qs.cancel(id) {
+					log.Printf("agentwall: the agent cancelled call %s while its question was open", id)
 					continue // upstream never saw the call, so it needs no cancellation
 				}
 				mu.Lock()
