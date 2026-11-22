@@ -65,7 +65,10 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if m.Method != "" {
 			if p.hooks.OnRequest != nil {
-				if d := p.hooks.OnRequest(m); d.Deny {
+				if d := p.hooks.OnRequest(m); d.Deny || d.Ask != "" { // shortcut: no asking over HTTP yet, so an ask is a no
+					if d.Ask != "" {
+						d.Reason += "; agentwall cannot ask in the agent over HTTP"
+					}
 					if m.IsRequest() {
 						writeJSON(w, http.StatusOK, jsonrpc.ErrorResponse(m.ID, CodeBlocked, "agentwall blocked this call: "+d.Reason))
 					} else {
