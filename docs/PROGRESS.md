@@ -33,8 +33,21 @@ Continue from **Next task**. Update this file and commit after every task.
   official filesystem/fetch/github servers (43 tools) as a false-positive fixture.
 - Lesson: tests that run `init` must set `AGENTWALL_PASSPHRASE`, or they write `audit-key` into the real OS keychain
   (happened once on 2026-11-21; the two Windows credentials were removed by hand).
-- Next: phase 2, ease of use: `ask` through MCP elicitation instead of the terminal, `init --apply` that wraps the
-  agent config itself, a Claude Code plugin/skill for one-step setup. Needs its own spec.
+- v0.2.0 released 2026-11-21 (PR #33): the security items above. Windows amd64 binary checked by hand (9/9, 0/6).
+- v0.3 (branch `v0.3-usability`, spec `docs/superpowers/specs/2026-11-22-v0.3-usability-design.md`):
+  - TLA+ in `spec/` (`check.sh`, CI job `spec`, tla2tools v1.7.4 pinned by SHA-256): Trifecta (108 states) and Ask
+    (169 states, liveness AllEnd) hold; their broken variants fail. Lesson: the first broken trifecta variant PASSED
+    because record+deliver were one atomic step; always keep a must-fail variant.
+  - `ask` through MCP elicitation (stdio): `proxy/ask.go`, `Decision.Ask`, `Hooks.OnAnswer`, `Config.Elicit` (wrap only).
+  - `init --apply` / `--check` (`cmd/agentwall/apply.go`), backups, absolute exe path.
+  - Plugin: `.claude-plugin/marketplace.json`, `plugin/` (skill `setup`, SessionStart hook `session-check.sh`).
+  - Real Claude Code (2.1.177, Haiku, `--plugin-dir`): `/agentwall:setup` wrapped a test `.mcp.json` and `--check`
+    came back clean. Claude Code (2.1.327) declares `elicitation: {form, url}`; replaying its exact `initialize`,
+    agentwall sends `elicitation/create`. In `claude -p` the tool call just stays "running": print mode cannot show
+    the question. Open: a 480 s `-p` run left no audit entry although the 5-minute timeout should have denied the
+    call (under investigation). NOT checked: the question in Claude Code's interactive screen.
+  - Found by the real runs: the terminal-prompt fallback waited forever; it now says no after 5 minutes.
+- Next: check the ask question interactively; then the stretch list (secrets moved into the vault by `init --apply`).
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups #13–#18 are closed.
 - Model that last worked: Opus 5.5
 

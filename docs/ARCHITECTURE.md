@@ -95,6 +95,18 @@ Each entry gives the decision, the reason, and the cost.
 - **Why.** A plain hash chain can be rebuilt by anyone who can write the file. The key lives in the keychain, outside the state directory, so rewriting the log is not enough.
 - **Trade-off.** It cannot show that the newest entries were removed; that needs an outside anchor. Older logs stay readable as unsigned.
 
+### Asking in the agent, held in the proxy
+
+- **Decision.** For an `ask`, the firewall returns a question and the proxy sends the agent `elicitation/create`, holding the call in an `asks` map. The user's answer, a 5-minute timeout and the agent's `notifications/cancelled` race to take it out of the map; the first wins, later ones find nothing. The agent read loop keeps running meanwhile. `onAnswer` audits the outcome and can still deny.
+- **Why.** The terminal prompt never worked inside an agent's UI, which owns the terminal. Holding the call in the proxy, instead of blocking the read loop, keeps the agent's other calls flowing and avoids a deadlock on the answer, which arrives on that same loop.
+- **Trade-off.** Only stdio: over HTTP the question would need the server-to-client stream, so an ask is a no there. The flow was modelled in `spec/Ask.tla` and checked with TLC before it was written.
+
+### Model checking the concurrency, not the code
+
+- **Decision.** `spec/` holds TLA+ models of the two concurrent protocols: taint shared across server processes (`Trifecta.tla`) and the ask race (`Ask.tla`). Each has a broken variant that TLC must reject, and CI runs all four checks.
+- **Why.** Unit tests cover the orderings someone thought of; TLC covers every ordering of the model. The broken variants prove a check can fail: the first version of the trifecta model passed its broken variant too, because recording taint and delivering were one atomic step.
+- **Trade-off.** The models are small and hand-kept in step with the code; they say nothing about Go-level bugs.
+
 ### Vault backend choice
 
 - **Decision.** The OS keychain is the default. If `AGENTWALL_PASSPHRASE` is set, the encrypted file is used instead. There is no automatic fallback between them. Without either, `wrap` still runs with pattern-only redaction and prints a warning, unless the policy needs a secret for that server.
@@ -167,6 +179,7 @@ Each line says what does not work. The sources are in [PROGRESS.md](PROGRESS.md)
 - `allowed_hosts` sees `http(s)://` URLs in strings only.
 - Server notifications and requests are redacted but not tainted. Sampling is refused; over HTTP the refusal is a dropped request, not an error reply.
 - A tool that the policy does not tag gets no flow control.
+- In HTTP mode an `ask` is answered no: agentwall cannot ask in the agent over HTTP yet. Agents that do not support MCP elicitation get the terminal prompt.
 - Taint is shared between servers by the agent's process id. Checked with a real Claude Code session on Windows; other agents and macOS/Linux are not checked.
 - A request that the server never answers and the agent never cancels stays in the pending map until the process exits.
 - The fingerprint rule blocks writing an edited private file back through an egress tool. The workarounds are `on_fingerprint: ask` or removing the `egress_sink` tag from that tool.
