@@ -16,6 +16,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"unicode/utf8"
 
 	"github.com/Arsh624/agentwall/internal/audit"
 	"github.com/Arsh624/agentwall/internal/detect"
@@ -37,9 +39,11 @@ type Firewall struct {
 	Pins    *pin.Store                 // hashes of the tool definitions the user has accepted
 	Redact  *vault.Redactor            // strips secrets from everything upstream answers
 	Ask     func(question string) bool // nil: every "ask" is denied
+	Elicit  bool                       // the transport can ask in the agent (stdio); used when the agent can too
 
-	mu     sync.Mutex
-	hidden map[string]bool // tools whose definition changed since it was pinned
+	clientElicits atomic.Bool // the agent declared the elicitation capability in initialize
+	mu            sync.Mutex
+	hidden        map[string]bool // tools whose definition changed since it was pinned
 }
 
 // Config is what one agentwall process needs to guard one server.
@@ -50,6 +54,7 @@ type Config struct {
 	Policy   *policy.Policy
 	Secrets  map[string]string // vault values to redact, by name
 	Ask      func(question string) bool
+	Elicit   bool   // ask in the agent through MCP elicitation when it supports it (stdio only)
 	AuditKey []byte // signs audit entries; nil writes them unsigned
 }
 
@@ -73,7 +78,7 @@ func Open(c Config) (*Firewall, error) {
 		return nil, err
 	}
 	return &Firewall{Server: c.Server, Session: sess, Policy: c.Policy, Audit: log, Prints: prints,
-		Pins: pin.Open(PinsDir(c.StateDir)), Redact: vault.NewRedactor(c.Secrets), Ask: c.Ask}, nil
+		Pins: pin.Open(PinsDir(c.StateDir)), Redact: vault.NewRedactor(c.Secrets), Ask: c.Ask, Elicit: c.Elicit}, nil
 }
 
 func (f *Firewall) Close() error {
@@ -81,7 +86,21 @@ func (f *Firewall) Close() error {
 }
 
 func (f *Firewall) Hooks() proxy.Hooks {
-	return proxy.Hooks{OnRequest: f.onRequest, OnResponse: f.onResponse, OnServerMessage: f.onServerMessage}
+	return proxy.Hooks{OnRequest: f.onRequest, OnResponse: f.onResponse, OnServerMessage: f.onServerMessage, OnAnswer: f.onAnswer}
+}
+
+// onAnswer audits the user's answer to a question asked in the agent and gives the final decision.
+func (f *Firewall) onAnswer(req *jsonrpc.Message, approved bool, why string) proxy.Decision {
+	var call callParams
+	json.Unmarshal(req.Params, &call) // canonical since onRequest
+	decision := policy.Deny
+	if approved {
+		decision = policy.Allow
+	}
+	if err := f.audit(call.Name, call.Arguments, string(decision), why); err != nil {
+		return proxy.Decision{Deny: true, Reason: "the audit log is unavailable"} // no unlogged calls
+	}
+	return proxy.Decision{Deny: !approved, Reason: why}
 }
 
 // onServerMessage vets what the server sends the agent on its own: logs, progress, list changes,
@@ -109,6 +128,15 @@ type callParams struct {
 }
 
 func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
+	if req.Method == "initialize" {
+		var p struct {
+			Capabilities struct {
+				Elicitation json.RawMessage `json:"elicitation"`
+			} `json:"capabilities"`
+		}
+		json.Unmarshal(req.Params, &p)
+		f.clientElicits.Store(len(p.Capabilities.Elicitation) > 0 && string(p.Capabilities.Elicitation) != "null")
+	}
 	if req.Method != "tools/call" {
 		return proxy.Decision{}
 	}
@@ -135,6 +163,10 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 			d = fd
 		}
 	}
+	if d.Action == policy.Ask && f.Elicit && f.clientElicits.Load() { // the proxy asks; onAnswer audits the outcome
+		return proxy.Decision{Reason: d.Reason, Ask: fmt.Sprintf("agentwall: allow %s/%s?\n\nWhy you are asked: %s.\nArguments: %s",
+			f.Server, call.Name, d.Reason, shorten(string(call.Arguments), 300))}
+	}
 	if d.Action == policy.Ask {
 		if f.Ask != nil && f.Ask(fmt.Sprintf("allow %s/%s? (%s)", f.Server, call.Name, d.Reason)) {
 			d = policy.Decision{Action: policy.Allow, Reason: "approved by the user"}
@@ -150,6 +182,17 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 		return proxy.Decision{Deny: true, Reason: "the audit log is unavailable"} // no unlogged calls
 	}
 	return proxy.Decision{Deny: d.Action == policy.Deny, Reason: d.Reason}
+}
+
+// shorten cuts s to at most n bytes (on a rune boundary), marking the cut.
+func shorten(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n] + "..."
 }
 
 // canonical re-encodes JSON as Go reads it: one value per key (the last), numbers as written.

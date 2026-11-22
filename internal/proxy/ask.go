@@ -76,7 +76,9 @@ func (a *asks) cancel(callID string) bool {
 	return ok
 }
 
-func isAnswer(m *jsonrpc.Message) bool { return m.Method == "" && strings.HasPrefix(string(m.ID), askPrefix) }
+func isAnswer(m *jsonrpc.Message) bool {
+	return m.Method == "" && strings.HasPrefix(string(m.ID), askPrefix)
+}
 
 // approval reads the agent's answer: only an accepted form with allow = true approves.
 func approval(m *jsonrpc.Message) (bool, string) {
