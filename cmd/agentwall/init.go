@@ -22,6 +22,10 @@ import (
 // to put the user's MCP servers behind agentwall. It does not edit their configs.
 func runInit(cmd *cobra.Command, _ []string) error {
 	out := cmd.OutOrStdout()
+	if check, _ := cmd.Flags().GetBool("check"); check { // read only: for the plugin's session hook
+		checkConfigs(out)
+		return nil
+	}
 	path := filepath.Join(stateDir(), "policy.yaml")
 	if _, err := os.Stat(path); errors.Is(err, fs.ErrNotExist) {
 		if err := os.MkdirAll(stateDir(), 0o700); err != nil {
@@ -39,6 +43,9 @@ func runInit(cmd *cobra.Command, _ []string) error {
 
 	initAuditKey(out)
 
+	if apply, _ := cmd.Flags().GetBool("apply"); apply {
+		return applyConfigs(out)
+	}
 	home, _ := os.UserHomeDir()
 	found := false
 	for _, config := range []string{".mcp.json", filepath.Join(".cursor", "mcp.json"),
