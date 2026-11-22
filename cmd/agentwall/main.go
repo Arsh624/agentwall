@@ -117,13 +117,16 @@ func newRootCmd() *cobra.Command {
 	}
 	logCmd.Flags().Bool("tail", false, "keep printing new entries")
 
+	initCmd := &cobra.Command{
+		Use:   "init [--apply | --check]",
+		Short: "Write the default policy and put your Claude Code / Cursor MCP servers behind agentwall",
+		Args:  cobra.NoArgs,
+		RunE:  runInit,
+	}
+	initCmd.Flags().Bool("apply", false, "rewrite the agent configs so every stdio server runs through agentwall (backs each file up first)")
+	initCmd.Flags().Bool("check", false, "only list the MCP servers that do not go through agentwall")
 	root.AddCommand(
-		&cobra.Command{
-			Use:   "init",
-			Short: "Write the default policy and show how to wrap your Claude Code / Cursor servers",
-			Args:  cobra.NoArgs,
-			RunE:  runInit,
-		},
+		initCmd,
 		wrap,
 		proxyCmd,
 		secret,
