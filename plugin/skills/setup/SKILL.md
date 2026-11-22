@@ -9,7 +9,7 @@ agentwall runs each MCP server behind a firewall: it blocks the lethal trifecta 
 
 ## 1. Find agentwall
 
-Run `agentwall --version`. If that fails, try `~/.local/bin/agentwall --version` (macOS, Linux) or `"$LOCALAPPDATA/agentwall/agentwall.exe" --version` (Windows). Use the first one that works as AGENTWALL in the steps below. If none works, install it (step 2); otherwise go to step 3.
+Run `agentwall --version`. If that fails, try `~/.local/bin/agentwall --version` (macOS, Linux) or `"$LOCALAPPDATA/agentwall/agentwall.exe" --version` (Windows). The first one that works is the command to use below, where it is written `AGENTWALL`; when you show commands to the user, write that real command, never the word AGENTWALL. If none works, install it (step 2); otherwise go to step 3.
 
 ## 2. Install it (only if it is missing)
 
@@ -44,7 +44,7 @@ If the download or the checksum fails, stop and show the user the error. Never i
 
 ## 3. Write the policy and the audit key
 
-Run `AGENTWALL init` in the project directory. It writes the default policy to `~/.agentwall/policy.yaml` (never over an existing one) and creates the key that signs the audit log. If it says the vault is unavailable, tell the user the audit log will be unsigned until a keychain or `AGENTWALL_PASSPHRASE` is available.
+Run `AGENTWALL init` in the project directory. It writes the default policy to `policy.yaml` in agentwall's state folder (`~/.agentwall`, or `AGENTWALL_HOME` when that is set; the output names the file), never over an existing one, and creates the key that signs the audit log. If it says the vault is unavailable, tell the user the audit log will be unsigned until a keychain or `AGENTWALL_PASSPHRASE` is available.
 
 ## 4. Put the MCP servers behind agentwall
 

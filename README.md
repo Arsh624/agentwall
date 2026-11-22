@@ -59,30 +59,42 @@ flowchart LR
 - **Terminal escape codes stripped.** Escape sequences that hide or rewrite text in a terminal are removed from tool output and logged.
 - **Policy file.** One YAML file sets tags, `allow` / `deny` / `ask` per tool, argument rules, the hosts an egress tool may reach (`allowed_hosts`), and the environment for each server.
 - **Signed audit log.** Every decision is written to a JSONL file. Each entry includes a hash of the previous entry and an HMAC under a key kept in the vault. `agentwall verify` detects edits, deletions, reordering and rebuilt chains.
+- **Approval inside the agent.** A tool with `action: ask` (or `on_trifecta: ask`) puts a yes/no question in front of you in Claude Code through MCP elicitation, with the reason and the arguments. No answer in 5 minutes means no. Agents without elicitation, and HTTP mode, fall back to the terminal.
 - **Injection heuristics.** Pattern checks look for text such as "ignore previous instructions" and hidden zero-width characters in tool output. A match marks the session untrusted. It never blocks a call by itself.
 - **Attack suite.** `agentwall attack` replays scripted attacks and harmless control runs against mock servers, so you can check the firewall yourself.
 
 ## Install
 
-Pick one:
+In Claude Code, the easiest way is the plugin. Add it and run its setup:
+
+```
+/plugin marketplace add Arsh624/agentwall
+/plugin install agentwall@agentwall
+/agentwall:setup
+```
+
+`/agentwall:setup` installs the binary if it is missing (checksum verified), writes the policy, and puts every MCP server of your project behind agentwall, backing up each config it changes. From then on, each session starts with a quick check that warns Claude when a server is not protected. Claude Code 2.1.275 and later can add and install in one step: `/plugin install agentwall --marketplace Arsh624/agentwall`.
+
+Or install the binary yourself. Pick one:
 
 - With Go: `go install github.com/Arsh624/agentwall/cmd/agentwall@latest`
 - Install script (Linux and macOS). It downloads the release and verifies its checksum: `curl -fsSL https://raw.githubusercontent.com/Arsh624/agentwall/main/install.sh | sh`
 - Binary: download it from the Releases page on GitHub.
 
-The latest release is [v0.1.1](https://github.com/Arsh624/agentwall/releases/tag/v0.1.1). It has binaries for Linux, macOS and Windows (amd64 and arm64) and a `checksums.txt` file. The install script was run on Linux (Ubuntu under WSL), and the Windows amd64 binary was run by hand; both passed the attack suite. The macOS and arm64 binaries were built by the release workflow but have not been run by hand.
+Each [release](https://github.com/Arsh624/agentwall/releases) has binaries for Linux, macOS and Windows (amd64 and arm64) and a `checksums.txt` file. The Windows amd64 binary of each release was run by hand, and the install script was run on Linux (Ubuntu under WSL) for v0.1.1; both passed the attack suite. The macOS and arm64 binaries are built by the release workflow but have not been run by hand.
 
 ## Quick start
 
-1. Write the default policy and find your agent's MCP servers:
+1. Write the default policy and put your agent's MCP servers behind agentwall:
 
    ```
    agentwall init
+   agentwall init --apply
    ```
 
-   This writes `~/.agentwall/policy.yaml` (only if the file does not exist). It prints the wrapped version of each server it finds in `.mcp.json`, `.cursor/mcp.json`, `~/.claude.json` and `~/.cursor/mcp.json`. It never edits those files.
+   `init` writes `~/.agentwall/policy.yaml` (only if the file does not exist) and creates the key that signs the audit log. `init --apply` rewrites `.mcp.json`, `.cursor/mcp.json`, `~/.cursor/mcp.json` and the user's and this project's servers in `~/.claude.json`, so each stdio server starts through agentwall. It backs up every file it changes, and a second run changes nothing. `agentwall init --check` lists any server that is still not protected. Restart the agent afterwards.
 
-2. Put each MCP server behind agentwall in your agent config. In `.mcp.json`, change this:
+2. Or do it by hand. In `.mcp.json`, change this:
 
    ```json
    {
@@ -146,7 +158,8 @@ default_action: allow
 
 # What happens to an egress call when the session has read both untrusted and
 # private data (on_trifecta), or when its arguments contain private text (on_fingerprint).
-# deny blocks the call. ask asks you on the terminal.
+# deny blocks the call. ask asks you: in the agent when it supports MCP elicitation
+# (Claude Code does), otherwise on the terminal; no answer in 5 minutes is a no.
 on_trifecta: deny
 on_fingerprint: deny
 
@@ -213,6 +226,15 @@ blocked 9/9 attacks, false positives 0/6
 
 CI runs the suite on Linux, Windows and macOS.
 
+## Formal verification
+
+Two parts of the design are model-checked with TLA+ and the TLC model checker. The specs are in [spec/](spec), and CI checks them on every pull request.
+
+- [spec/Trifecta.tla](spec/Trifecta.tla): one agentwall process per MCP server, sharing taint through files, with answers and calls interleaving in any order. TLC checks that no egress call goes out once the agent has seen both untrusted and private data, over all 108 reachable states. A broken variant that hands an answer to the agent before recording its taint must fail, and TLC finds the 6-step leak.
+- [spec/Ask.tla](spec/Ask.tla): the approval question, where your answer, the 5-minute timeout and the agent cancelling the call race each other. TLC checks that a call reaches the server only after you accepted it, that the agent never gets two replies to one call, that a cancelled call is never forwarded, and that every question ends (169 states, two calls in flight). It was written before the Go code. A variant whose timeout leaves the question open must fail.
+
+The models check the design, not the Go code; the Go tests check that the code follows it. To run them: `sh spec/check.sh path/to/tla2tools.jar` (TLA+ tools v1.7.4, Java 11 or later).
+
 ## Benchmarks
 
 | case | direct p50 | direct p99 | wrapped p50 | wrapped p99 | added p50 | added p99 |
@@ -253,6 +275,7 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 - `allowed_hosts` checks `http(s)://` URLs inside string arguments. A host passed as a bare string is not checked.
 - Server notifications and requests (logs, progress, elicitation, roots) are redacted but not tainted. Sampling requests are refused. Over HTTP a refused request gets no answer, so the server waits for one.
 - A tool that the policy does not tag gets no flow control.
+- In HTTP mode an `ask` is answered no: agentwall cannot ask in the agent over HTTP yet. Agents that do not support MCP elicitation get the terminal prompt.
 - Taint is shared between the MCP servers of one agent by the agent's process id (on Windows, agentwall looks past `cmd /c` and PowerShell wrappers). This was checked with a real Claude Code session on Windows (2.1.177, filesystem and fetch servers): both servers shared one session, and the second fetch was blocked as a lethal trifecta. If your servers still get different ids, set the same `AGENTWALL_SESSION` in each server's `env`.
 - The injection heuristics are pattern matching. They can be evaded.
 - The fingerprint rule blocks writing an edited private file back through an egress tool (for example, reading a file and then committing it with `create_or_update_file`). Set `on_fingerprint: ask` to be asked instead, or remove the `egress_sink` tag from that tool. This is on purpose: the firewall cannot tell your own repository from someone else's.
@@ -271,19 +294,21 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
 | Command | What it does |
 |---|---|
-| `agentwall init` | Write the default policy and show how to wrap your Claude Code / Cursor servers |
+| `agentwall init` | Write the default policy and the audit key, and show how to wrap your Claude Code / Cursor servers |
+| `agentwall init --apply` | Rewrite the agent configs so every stdio MCP server runs through agentwall (backs each file up) |
+| `agentwall init --check` | List the MCP servers that do not go through agentwall (prints nothing when all do) |
 | `agentwall wrap [--policy file] [--server name] -- <cmd> [args...]` | Run an MCP server behind the firewall (stdio) |
 | `agentwall proxy --upstream URL [--listen addr] [--server name] [--policy file]` | Run the firewall in front of an HTTP MCP server |
 | `agentwall secret set NAME` | Store a secret in the vault (the value is read from stdin) |
 | `agentwall secret list` | List the names of the stored secrets |
 | `agentwall approve <server>/<tool>` | Accept a changed tool |
-| `agentwall verify` | Check the audit log hash chain |
+| `agentwall verify` | Check the audit log hash chain and its signatures |
 | `agentwall log [--tail]` | Pretty-print the audit log; `--tail` keeps printing new entries |
 | `agentwall attack` | Run the attack suite and print the score |
 
 ## Status
 
-v0.2. The firewall and its tests run on Linux, Windows and macOS in CI, and it was checked in a real Claude Code session on Windows. Not yet verified: a real remote HTTP MCP server, and the `ask` prompt in a real agent UI.
+v0.3. The firewall and its tests run on Linux, Windows and macOS in CI, and it was checked in real Claude Code sessions on Windows, including the plugin's `/agentwall:setup`. Not yet verified: a real remote HTTP MCP server, and the approval question as it appears in Claude Code's interactive screen.
 
 State lives in `~/.agentwall/`:
 
