@@ -5,6 +5,7 @@ package firewall
 import (
 	"bufio"
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -44,6 +45,7 @@ type Firewall struct {
 	Elicit  bool                       // the transport can ask in the agent (stdio); used when the agent can too
 
 	clientElicits atomic.Bool // the agent declared the elicitation capability in initialize
+	stateKey      []byte      // signs input_required states; random per process, like the questions it signs
 	mu            sync.Mutex
 	hidden        map[string]bool // tools whose definition changed since it was pinned
 }
@@ -65,6 +67,10 @@ func PinsDir(stateDir string) string   { return filepath.Join(stateDir, "pins") 
 
 // Open builds a Firewall on the shared state directory. Close it when done.
 func Open(c Config) (*Firewall, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return nil, err
+	}
 	log, err := audit.OpenSigned(AuditPath(c.StateDir), c.AuditKey)
 	if err != nil {
 		return nil, err
@@ -80,7 +86,8 @@ func Open(c Config) (*Firewall, error) {
 		return nil, err
 	}
 	return &Firewall{Server: c.Server, Session: sess, Policy: c.Policy, Audit: log, Prints: prints,
-		Pins: pin.Open(PinsDir(c.StateDir)), Redact: vault.NewRedactor(c.Secrets), Ask: c.Ask, Elicit: c.Elicit}, nil
+		Pins: pin.Open(PinsDir(c.StateDir)), Redact: vault.NewRedactor(c.Secrets), Ask: c.Ask, Elicit: c.Elicit,
+		stateKey: key}, nil
 }
 
 func (f *Firewall) Close() error {
@@ -150,7 +157,15 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 	if err != nil || call.Name == "" {
 		return proxy.Decision{Deny: true, Reason: "malformed tools/call"}
 	}
+	params, ans, err := f.takeAnswer(params, call)
+	if err != nil {
+		return proxy.Decision{Deny: true, Reason: "malformed tools/call"}
+	}
 	req.Params = params // upstream gets what the policy checks, whatever its parser does with duplicate keys
+	if ans.present && !ans.approved {
+		f.audit(call.Name, call.Arguments, string(policy.Deny), ans.why)
+		return proxy.Decision{Deny: true, Reason: ans.why}
+	}
 
 	d := f.Policy.Decide(f.Server, call.Name, call.Arguments)
 	f.mu.Lock()
@@ -165,7 +180,16 @@ func (f *Firewall) onRequest(req *jsonrpc.Message) proxy.Decision {
 			d = fd
 		}
 	}
-	if d.Action == policy.Ask && f.Elicit && f.clientElicits.Load() { // the proxy asks; onAnswer audits the outcome
+	if d.Action == policy.Ask && ans.approved { // the user said yes to this exact call (MCP 2026-07-28 retry)
+		d = policy.Decision{Action: policy.Allow, Reason: ans.why}
+	}
+	if d.Action == policy.Ask && asksInBand(params) { // MCP 2026-07-28: ask in the reply; the client retries with the answer
+		if err := f.audit(call.Name, call.Arguments, "ask", "asked the user in the agent: "+d.Reason); err != nil {
+			return proxy.Decision{Deny: true, Reason: "the audit log is unavailable"}
+		}
+		return proxy.Decision{Result: f.inputRequired(call, d.Reason)}
+	}
+	if d.Action == policy.Ask && f.Elicit && f.clientElicits.Load() { // 2025-era: the proxy asks; onAnswer audits the outcome
 		return proxy.Decision{Reason: d.Reason, Ask: fmt.Sprintf("agentwall: allow %s/%s?\n\nWhy you are asked: %s.\nArguments: %s",
 			f.Server, call.Name, d.Reason, shorten(string(call.Arguments), 300))}
 	}

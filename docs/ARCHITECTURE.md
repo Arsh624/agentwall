@@ -100,6 +100,7 @@ Each entry gives the decision, the reason, and the cost.
 - **Decision.** For an `ask`, the firewall returns a question and the proxy sends the agent `elicitation/create`, holding the call in an `asks` map. The user's answer, a 5-minute timeout and the agent's `notifications/cancelled` race to take it out of the map; the first wins, later ones find nothing. The agent read loop keeps running meanwhile. `onAnswer` audits the outcome and can still deny.
 - **Why.** The terminal prompt never worked inside an agent's UI, which owns the terminal. Holding the call in the proxy, instead of blocking the read loop, keeps the agent's other calls flowing and avoids a deadlock on the answer, which arrives on that same loop.
 - **Trade-off.** Only stdio: over HTTP the question would need the server-to-client stream, so an ask is a no there. The flow was modelled in `spec/Ask.tla` and checked with TLC before it was written.
+- **Update (MCP 2026-07-28).** Current Claude Code sends no `initialize` and never answers server-to-client requests: client capabilities ride on each request's `_meta`, and a server asks by replying `input_required`. agentwall now does that for such clients (`firewall/mrtr.go`): the reply carries an HMAC-signed `requestState` naming the tool, a hash of the arguments and an expiry, so the retried call is approved only if it is the same call, within 5 minutes. No state is held, so it works over HTTP too. The held-question flow above stays for 2025-era clients.
 
 ### Model checking the concurrency, not the code
 

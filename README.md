@@ -59,7 +59,7 @@ flowchart LR
 - **Terminal escape codes stripped.** Escape sequences that hide or rewrite text in a terminal are removed from tool output and logged.
 - **Policy file.** One YAML file sets tags, `allow` / `deny` / `ask` per tool, argument rules, the hosts an egress tool may reach (`allowed_hosts`), and the environment for each server.
 - **Signed audit log.** Every decision is written to a JSONL file. Each entry includes a hash of the previous entry and an HMAC under a key kept in the vault. `agentwall verify` detects edits, deletions, reordering and rebuilt chains.
-- **Approval inside the agent.** A tool with `action: ask` (or `on_trifecta: ask`) puts a yes/no question in front of you in Claude Code through MCP elicitation, with the reason and the arguments. No answer in 5 minutes means no. Agents without elicitation, and HTTP mode, fall back to the terminal.
+- **Approval inside the agent.** A tool with `action: ask` (or `on_trifecta: ask`) puts a yes/no question in front of you in Claude Code through MCP elicitation, with the reason and the arguments. With MCP 2026-07-28 clients (current Claude Code) the question is an `input_required` reply and the client retries the call with your answer; agentwall signs the question so a yes only counts for that exact tool and arguments, for 5 minutes. Older clients get an `elicitation/create` request over stdio. Agents without elicitation fall back to the terminal; no answer in 5 minutes means no.
 - **Injection heuristics.** Pattern checks look for text such as "ignore previous instructions" and hidden zero-width characters in tool output. A match marks the session untrusted. It never blocks a call by itself.
 - **Attack suite.** `agentwall attack` replays scripted attacks and harmless control runs against mock servers, so you can check the firewall yourself.
 
@@ -275,7 +275,7 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 - `allowed_hosts` checks `http(s)://` URLs inside string arguments. A host passed as a bare string is not checked.
 - Server notifications and requests (logs, progress, elicitation, roots) are redacted but not tainted. Sampling requests are refused. Over HTTP a refused request gets no answer, so the server waits for one.
 - A tool that the policy does not tag gets no flow control.
-- In HTTP mode an `ask` is answered no: agentwall cannot ask in the agent over HTTP yet. Agents that do not support MCP elicitation get the terminal prompt.
+- In HTTP mode, a client older than MCP 2026-07-28 gets no for an `ask`: agentwall can only ask it over stdio. Agents that do not support MCP elicitation get the terminal prompt.
 - Taint is shared between the MCP servers of one agent by the agent's process id (on Windows, agentwall looks past `cmd /c` and PowerShell wrappers). This was checked with a real Claude Code session on Windows (2.1.177, filesystem and fetch servers): both servers shared one session, and the second fetch was blocked as a lethal trifecta. If your servers still get different ids, set the same `AGENTWALL_SESSION` in each server's `env`.
 - The injection heuristics are pattern matching. They can be evaded.
 - The fingerprint rule blocks writing an edited private file back through an egress tool (for example, reading a file and then committing it with `create_or_update_file`). Set `on_fingerprint: ask` to be asked instead, or remove the `egress_sink` tag from that tool. This is on purpose: the firewall cannot tell your own repository from someone else's.
@@ -308,7 +308,7 @@ Full method and in-process numbers: [docs/BENCHMARKS.md](docs/BENCHMARKS.md)
 
 ## Status
 
-v0.3. The firewall and its tests run on Linux, Windows and macOS in CI, and it was checked in real Claude Code sessions on Windows, including the plugin's `/agentwall:setup`. Not yet verified: a real remote HTTP MCP server, and the approval question as it appears in Claude Code's interactive screen.
+v0.3. The firewall and its tests run on Linux, Windows and macOS in CI, and it was checked in real Claude Code sessions on Windows, including the plugin's `/agentwall:setup`. In a real Claude Code 2.1.327 session the `input_required` question round trip works (print mode answers it with cancel, which agentwall turns into a deny). Not yet verified: a real remote HTTP MCP server, and the question as it appears in Claude Code's interactive screen.
 
 State lives in `~/.agentwall/`:
 

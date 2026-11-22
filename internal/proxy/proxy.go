@@ -18,6 +18,9 @@ type Decision struct {
 	Deny   bool
 	Reason string // shown to the agent
 	Ask    string // non-empty: ask the user this in the agent (MCP elicitation) before forwarding
+	// Result, when set, answers the request with this result instead of forwarding it
+	// (an MCP 2026-07-28 input_required reply).
+	Result json.RawMessage
 }
 
 // Hooks are the firewall's view of the traffic. Nil hooks make the proxy transparent.
@@ -106,6 +109,10 @@ func Run(agentIn io.Reader, agentOut io.Writer, upIn io.WriteCloser, upOut io.Re
 					if m.IsRequest() {
 						toAgent.Write(jsonrpc.ErrorResponse(m.ID, CodeBlocked, "agentwall blocked this call: "+d.Reason))
 					}
+					continue
+				}
+				if d.Result != nil && m.IsRequest() {
+					toAgent.Write(&jsonrpc.Message{JSONRPC: "2.0", ID: m.ID, Result: d.Result})
 					continue
 				}
 				if d.Ask != "" && m.IsRequest() {

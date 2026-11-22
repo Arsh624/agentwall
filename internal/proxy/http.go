@@ -65,7 +65,12 @@ func (p *httpProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		if m.Method != "" {
 			if p.hooks.OnRequest != nil {
-				if d := p.hooks.OnRequest(m); d.Deny || d.Ask != "" { // shortcut: no asking over HTTP yet, so an ask is a no
+				d := p.hooks.OnRequest(m)
+				if d.Result != nil && m.IsRequest() {
+					writeJSON(w, http.StatusOK, &jsonrpc.Message{JSONRPC: "2.0", ID: m.ID, Result: d.Result})
+					return
+				}
+				if d.Deny || d.Ask != "" { // shortcut: no asking over HTTP yet, so an ask is a no
 					if d.Ask != "" {
 						d.Reason += "; agentwall cannot ask in the agent over HTTP"
 					}
