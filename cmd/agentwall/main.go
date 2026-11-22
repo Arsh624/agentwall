@@ -301,6 +301,7 @@ func runWrap(cmd *cobra.Command, args []string) error {
 		return err
 	}
 	defer fw.Close()
+	fw.Elicit = true // over stdio the proxy can ask in the agent, if the agent supports it
 	// the server gets our environment plus its vault secrets, minus the vault passphrase
 	var env []string
 	for _, kv := range os.Environ() {
