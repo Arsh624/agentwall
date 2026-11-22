@@ -14,7 +14,7 @@ tlc() { # tlc <cfg> <module>
 
 pass() { # pass <cfg> <module>
 	if out=$(tlc "$1" "$2") && echo "$out" | grep -q "No error has been found"; then
-		echo "ok    $2 with $1: $(echo "$out" | grep "distinct states found")"
+		echo "ok    $2 with $1: holds over $(echo "$out" | grep -o "[0-9]* distinct states" | tail -1)"
 	else
 		echo "FAIL  $2 with $1 must hold:"; echo "$out"; status=1
 	fi
@@ -30,4 +30,6 @@ fail() { # fail <cfg> <module> <invariant>
 
 pass Trifecta.cfg Trifecta.tla
 fail TrifectaBroken.cfg Trifecta.tla NoLeak
+pass Ask.cfg Ask.tla
+fail AskBroken.cfg Ask.tla OneReply
 exit $status
