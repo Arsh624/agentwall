@@ -44,8 +44,11 @@ Continue from **Next task**. Update this file and commit after every task.
   - Real Claude Code (2.1.177, Haiku, `--plugin-dir`): `/agentwall:setup` wrapped a test `.mcp.json` and `--check`
     came back clean. Claude Code (2.1.327) declares `elicitation: {form, url}`; replaying its exact `initialize`,
     agentwall sends `elicitation/create`. In `claude -p` the tool call just stays "running": print mode cannot show
-    the question. Open: a 480 s `-p` run left no audit entry although the 5-minute timeout should have denied the
-    call (under investigation). NOT checked: the question in Claude Code's interactive screen.
+    the question. Cause found: Claude Code 2.1.327 speaks MCP 2026-07-28 (no `initialize`, capabilities in each
+    request's `_meta`, no server-to-client requests), so agentwall never saw elicitation support and fell back to
+    the terminal prompt, which hung. Fixed by the `input_required` path (`firewall/mrtr.go`); a real `-p` session now
+    gets the question, answers cancel, and agentwall denies in 13 s. NOT checked: the question in Claude Code's
+    interactive screen.
   - Found by the real runs: the terminal-prompt fallback waited forever; it now says no after 5 minutes.
 - Next: check the ask question interactively; then the stretch list (secrets moved into the vault by `init --apply`).
 - Issues: milestone M<n> = issue #<n> (#1–#9). Follow-ups #13–#18 are closed.
