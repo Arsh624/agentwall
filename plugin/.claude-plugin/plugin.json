@@ -1,0 +1,11 @@
+{
+  "name": "agentwall",
+  "version": "0.3.0",
+  "description": "Install agentwall and put every MCP server of your project behind it. Warns at session start when a server is not protected.",
+  "author": {
+    "name": "Archit Shukla",
+    "url": "https://github.com/Arsh624"
+  },
+  "homepage": "https://github.com/Arsh624/agentwall",
+  "license": "MIT"
+}
