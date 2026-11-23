@@ -13,7 +13,7 @@ It is for people who run AI agents with MCP servers on their own computer, and w
 
 **At a glance**
 
-- Blocks 5 of 5 scripted attacks in the bundled suite, with 0 false positives on 4 normal sessions. You can rerun it with `agentwall attack`.
+- Blocks 9 of 9 scripted attacks in the bundled suite, with 0 false positives on 6 normal sessions. You can rerun it with `agentwall attack`.
 - Adds about 0.2 ms at p99 per tool call for 1 KB payloads (0.5 ms for 10 KB), well under the 2 ms target. See [Benchmarks](#benchmarks).
 - One Go binary for Linux, macOS and Windows. Works with stdio and HTTP MCP servers.
 - Covers the GitHub MCP "lethal trifecta" heist, secret exfiltration through fetch, poisoned and shadowing tool descriptions, tool rug pulls, terminal escape tricks, zero-width injection and cross-session leaks of private text.
